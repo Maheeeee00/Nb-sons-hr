@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "_m.html" import badge %}
+{% from "_emp_tabs.html" import emp_tabs, source_badge with context %}
+{% block title %}Employees{% endblock %}
+{% block heading %}Employees{% endblock %}
+{% block actions %}
+  {% if can('employees.manage') %}<a class="btn" href="{{ url_for('employee_import') }}">📤 Import employees</a>{% endif %}
+  <a class="btn" href="{{ url_for('employees', export='csv', **request.args) }}">📥 Export to Excel (CSV)</a>
+  {% if can('employees.manage') %}<a class="btn primary" href="{{ url_for('employee_new') }}">+ Add employee</a>{% endif %}
+{% endblock %}
+{% block content %}
+{{ emp_tabs('list') }}
+<div class="card">
+  <form class="inline" method="get" style="margin-bottom:14px">
+    <div><label>Search</label><input name="q" value="{{ request.args.q or '' }}" placeholder="Name, code, CNIC, phone…" style="min-width:240px"></div>
+    <div><label>Department</label><select name="dept"><option value="">All</option>
+      {% for d in depts %}<option value="{{ d.id }}" {{ 'selected' if request.args.dept == d.id|string }}>{{ d.name }}</option>{% endfor %}</select></div>
+    {% if managers %}<div><label>Manager</label><select name="manager"><option value="">All</option>
+      {% for m in managers %}<option value="{{ m.id }}" {{ 'selected' if request.args.manager == m.id|string }}>Team of {{ m.name }}</option>{% endfor %}</select></div>{% endif %}
+    <div><label>Status</label><select name="status">
+      {% for s, l in [('active','Active'),('inactive','Inactive'),('all','All')] %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ l }}</option>{% endfor %}</select></div>
+    <button class="btn">Filter</button>
+  </form>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Code</th><th>Name</th><th>Department</th><th>Designation</th><th>Manager</th><th>Phone</th><th>Joined</th><th class="num">Salary ({{ settings.currency }})</th><th>Status</th><th>Added</th><th></th></tr></thead>
+    <tbody>
+    {% for e in rows %}
+      <tr>
+        <td>{{ e.emp_code }}</td>
+        <td><a href="{{ url_for('employee_view', eid=e.id) }}"><b>{{ e.name }}</b></a></td>
+        <td>{{ e.dept or '—' }}</td><td>{{ e.designation or '—' }}{% if e.team_size %}<br><small class="muted">👥 {{ e.team_size }} report(s)</small>{% endif %}</td>
+        <td>{% if e.manager_id %}<a href="{{ url_for('employee_view', eid=e.manager_id) }}">{{ e.mgr_name }}</a>{% else %}—{% endif %}</td><td>{{ e.phone or '—' }}</td>
+        <td>{{ e.join_date|nicedate or '—' }}</td>
+        <td class="num">{{ ((e.basic_salary or 0) + (e.allowances or 0))|money }}</td>
+        <td>{{ badge(e.status) }}</td>
+        <td>{{ source_badge(e.source) }}</td>
+        <td><div class="btns"><a class="btn sm" href="{{ url_for('employee_view', eid=e.id) }}">🪪 Profile</a>{% if can('employees.manage') %}<a class="btn sm" href="{{ url_for('employee_edit', eid=e.id) }}">✏️ Edit</a>{% endif %}</div></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="11" class="empty">No employees found. <a href="{{ url_for('employee_new') }}">Add the first one</a>.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p class="muted" style="margin:10px 0 0;font-size:12.5px">{{ rows|length }} employee(s)</p>
+</div>
+{% endblock %}

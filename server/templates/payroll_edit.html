@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% block title %}Edit salary{% endblock %}
+{% block heading %}Edit salary · {{ p.name }} · {{ p.month|monthname }}{% endblock %}
+{% block actions %}<a class="btn" href="{{ url_for('payroll', month=p.month) }}">Cancel</a>{% endblock %}
+{% block content %}
+<div class="grid g2">
+  <form method="post" class="card" oninput="calc()">
+    {{ csrf() }}
+    <div class="form-grid">
+      <div><label>Basic</label><input type="number" step="any" name="basic" value="{{ p.basic|num }}"></div>
+      <div><label>Allowances</label><input type="number" step="any" name="allowances" value="{{ p.allowances|num }}"></div>
+      <div><label>Overtime</label><input type="number" step="any" name="overtime" value="{{ p.overtime|num }}"></div>
+      <div><label>Bonus</label><input type="number" step="any" name="bonus" value="{{ p.bonus|num }}"></div>
+      <div><label>Absent / unpaid deduction</label><input type="number" step="any" name="absent_deduction" value="{{ p.absent_deduction|num }}"></div>
+      <div><label>Income tax</label><input type="number" step="any" name="tax" value="{{ p.tax|num }}"></div>
+      <div><label>Other deductions (advance, fine…)</label><input type="number" step="any" name="other_deductions" value="{{ p.other_deductions|num }}"></div>
+      <div class="full"><label>Loan installment (automatic)</label>
+        <div class="loanline" style="margin:0"><span><b>{{ settings.currency }} {{ (p.loan_deduction or 0)|money }}</b>{% for c in cuts %} · <a href="{{ url_for('loan_view', lid=c.loan_id) }}">{{ c.reason or 'Loan' }}</a>{% endfor %}{% if not cuts %} – no loan to deduct{% endif %}</span><a class="btn sm" href="{{ url_for('loans') }}">Manage loans</a></div>
+        <input type="hidden" id="loanded" value="{{ p.loan_deduction or 0 }}"></div>
+      <div class="full"><label>Remarks (shown on payslip)</label><input name="remarks" value="{{ p.remarks or '' }}"></div>
+    </div>
+    <p style="font-size:18px;margin:16px 0">Net salary: <b>{{ settings.currency }} <span id="net">{{ p.net|money }}</span></b></p>
+    <button class="btn primary">Save</button>
+  </form>
+  <div class="card">
+    <div class="card-head"><h2>Attendance used for this month</h2></div>
+    <dl class="kv">
+      <dt>Working days</dt><dd>{{ p.working_days }}</dd>
+      <dt>Present</dt><dd>{{ p.present_days|num }}</dd>
+      <dt>Absent</dt><dd>{{ p.absent_days|num }}</dd>
+      <dt>Late arrivals</dt><dd>{{ p.late_days }}</dd>
+      <dt>Unpaid leave</dt><dd>{{ p.unpaid_leave_days|num }}</dd>
+      <dt>Total deducted days</dt><dd><b>{{ p.deduction_days|num }}</b></dd>
+      <dt>Per-day pay</dt><dd>{{ settings.currency }} {{ ((p.basic + p.allowances) / p.working_days if p.working_days else 0)|money }}</dd>
+    </dl>
+    <p class="muted" style="font-size:12.5px">Deducted days also include working days before the joining date{% if settings.lates_per_day|int > 0 %} and 1 day per {{ settings.lates_per_day }} late arrivals{% endif %}.</p>
+  </div>
+</div>
+<script>
+function v(n){return parseFloat(document.querySelector('[name='+n+']').value)||0}
+function calc(){var n=v('basic')+v('allowances')+v('overtime')+v('bonus')-v('absent_deduction')-v('tax')-v('other_deductions')-(parseFloat(document.getElementById('loanded').value)||0);
+document.getElementById('net').textContent=Math.round(n).toLocaleString('en-US');}
+</script>
+{% endblock %}

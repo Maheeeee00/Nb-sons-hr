@@ -1,0 +1,16 @@
+{% macro emp_tabs(active) %}
+<nav class="subnav">
+  <a href="{{ url_for('employees') }}" class="{{ 'on' if active == 'list' }}"><span>👥</span> All Employees <em>{{ emp_total }}</em></a>
+  <a href="{{ url_for('employee_profiles') }}" class="{{ 'on' if active == 'profiles' }}"><span>🪪</span> Profiles</a>
+  {% if can('employees.manage') %}
+  <a href="{{ url_for('employee_new') }}" class="{{ 'on' if active == 'add' }}"><span>➕</span> Add Manually</a>
+  <a href="{{ url_for('employee_bulk_edit') }}" class="{{ 'on' if active == 'edit' }}"><span>✏️</span> Edit Employees</a>
+  <a href="{{ url_for('employee_import') }}" class="{{ 'on' if active == 'import' }}"><span>📤</span> Import from Excel</a>
+  <a href="{{ url_for('employee_import_template') }}"><span>⬇️</span> Excel Template</a>
+  {% endif %}
+  <a href="{{ url_for('employees', export='csv', status='all') }}"><span>📥</span> Export</a>
+</nav>
+{% endmacro %}
+{% macro source_badge(s) -%}
+{% if s == 'import' %}<span class="badge src-imp">📤 Imported</span>{% else %}<span class="badge src-man">✍️ Added manually</span>{% endif %}
+{%- endmacro %}

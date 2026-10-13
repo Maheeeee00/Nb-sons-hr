@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf, badge %}
+{% from "_att_tabs.html" import att_tabs with context %}
+{% block title %}Manage attendance{% endblock %}
+{% block heading %}Manage attendance{% endblock %}
+{% block content %}
+{{ att_tabs('manage') }}
+
+<div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h2>🔎 Find records</h2></div>
+    <form method="get" class="form-grid">
+      <div><label>From</label><input type="date" name="frm" value="{{ frm.isoformat() }}"></div>
+      <div><label>To</label><input type="date" name="to" value="{{ to.isoformat() }}"></div>
+      <div><label>Employee</label><select name="emp"><option value="">All employees</option>
+        {% for e in emps %}<option value="{{ e.id }}" {{ 'selected' if emp == e.id|string }}>{{ e.name }} ({{ e.emp_code }}){% if e.status == 'inactive' %} – inactive{% endif %}</option>{% endfor %}</select></div>
+      <div><label>Department</label><select name="dept"><option value="">All</option>
+        {% for d in depts %}<option value="{{ d.id }}" {{ 'selected' if dept == d.id|string }}>{{ d.name }}</option>{% endfor %}</select></div>
+      <div><label>Status</label><select name="st"><option value="">All statuses</option>
+        {% for s in ATT_STATUSES %}<option value="{{ s }}" {{ 'selected' if st == s }}>{{ s|replace('_',' ')|title }}</option>{% endfor %}</select></div>
+      <div style="align-self:end" class="btns"><button class="btn primary">Show records</button>
+        <a class="btn" href="{{ url_for('attendance_manage') }}">Reset</a></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>🗓️ Mark many days at once</h2></div>
+    <form method="post" class="form-grid">
+      {{ csrf() }}<input type="hidden" name="action" value="mark">
+      {% for k, v in [('frm', frm.isoformat()), ('to', to.isoformat()), ('emp', emp), ('dept', dept), ('st', st)] %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+      <div class="full"><label>Employee(s) <small class="muted">(hold Ctrl to pick several)</small></label>
+        <select name="m_emp" multiple size="4" style="height:auto">
+          {% for e in emps if e.status == 'active' %}<option value="{{ e.id }}">{{ e.name }} ({{ e.emp_code }})</option>{% endfor %}</select>
+        <label class="check" style="margin-top:6px"><input type="checkbox" name="m_all" value="1"> All active employees</label></div>
+      <div><label>From</label><input type="date" name="m_from" required value="{{ today.isoformat() }}"></div>
+      <div><label>To</label><input type="date" name="m_to" required value="{{ today.isoformat() }}"></div>
+      <div><label>Mark as</label><select name="m_status">
+        {% for s in ATT_STATUSES %}<option value="{{ s }}">{{ s|replace('_',' ')|title }}</option>{% endfor %}
+        <option value="clear">🧹 Clear (remove records)</option></select></div>
+      <div><label>Note (optional)</label><input name="m_note" placeholder="e.g. Field visit, Public holiday"></div>
+      <div class="full">
+        <label class="check"><input type="checkbox" name="m_over" value="1"> Overwrite days that are already marked</label>
+        <label class="check"><input type="checkbox" name="m_off" value="1"> Include weekly off days</label>
+      </div>
+      <div><button class="btn primary" onclick="return confirm('Apply to the selected employees and dates?')">Apply</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="v">{{ rows|length }}</div><div class="l">Records {{ frm|nicedate }} – {{ to|nicedate }}</div></div>
+  <div class="stat ok"><div class="v">{{ counts.present or 0 }}</div><div class="l">Present</div></div>
+  <div class="stat warn"><div class="v">{{ (counts.late or 0) + (counts.half_day or 0) }}</div><div class="l">Late / half day</div></div>
+  <div class="stat bad"><div class="v">{{ counts.absent or 0 }}</div><div class="l">Absent</div></div>
+  <div class="stat info"><div class="v">{{ counts.leave or 0 }}</div><div class="l">Leave</div></div>
+</div>
+
+<form method="post" class="card" id="bulk">
+  {{ csrf() }}<input type="hidden" name="action" value="save">
+  {% for k, v in [('frm', frm.isoformat()), ('to', to.isoformat()), ('emp', emp), ('dept', dept), ('st', st)] %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  <div class="card-head">
+    <div><h2>✏️ Edit records</h2><small>Change any cell, tick 🗑 to delete. Changed rows turn yellow.</small></div>
+    <div class="btns"><span class="muted" id="chg"></span><button class="btn primary" id="save1" disabled>💾 Save changes</button></div>
+  </div>
+  {% if limited %}<div class="note">Showing the first 2,000 records. Narrow the dates or pick an employee to see the rest.</div>{% endif %}
+  <div class="table-wrap"><table class="editgrid">
+    <thead><tr><th>Date</th><th>Employee</th><th>Department</th><th>Status</th><th>In</th><th>Out</th><th>Note</th><th title="Delete">🗑</th></tr></thead>
+    <tbody>
+    {% for r in rows %}{% set i = r.id %}
+      <tr data-id="{{ i }}">
+        <td><b>{{ r.date|nicedate }}</b><br><small>{{ r.date|dayname }}</small><input type="checkbox" name="changed" value="{{ i }}" hidden></td>
+        <td><b>{{ r.name }}</b><br><small>{{ r.emp_code }}</small></td>
+        <td>{{ r.dept or '—' }}</td>
+        <td><select name="st_{{ i }}" style="min-width:120px">{% for s in ATT_STATUSES %}<option value="{{ s }}" {{ 'selected' if r.status == s }}>{{ s|replace('_',' ')|title }}</option>{% endfor %}</select></td>
+        <td><input type="time" name="in_{{ i }}" value="{{ r.check_in or '' }}" style="width:120px"></td>
+        <td><input type="time" name="out_{{ i }}" value="{{ r.check_out or '' }}" style="width:120px"></td>
+        <td><input name="note_{{ i }}" value="{{ r.note or '' }}" style="min-width:160px"></td>
+        <td><input type="checkbox" name="del" value="{{ i }}" class="delbox" title="Delete this record"></td>
+      </tr>
+    {% else %}<tr><td colspan="8" class="empty">No attendance records for these filters.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  {% if rows %}<div style="margin-top:14px" class="btns"><button class="btn primary" id="save2" disabled>💾 Save changes</button>
+    <a class="btn" href="{{ request.full_path }}">Undo all</a></div>{% endif %}
+</form>
+<script>
+(function(){
+  var f=document.getElementById('bulk'),n=0;
+  function mark(tr){var cb=tr.querySelector('input[name=changed]');if(!cb.checked){cb.checked=true;tr.classList.add('dirty');n++;
+    document.getElementById('chg').textContent=n+' row(s) changed';['save1','save2'].forEach(function(id){var b=document.getElementById(id);if(b)b.disabled=false});}}
+  f.addEventListener('input',function(e){var tr=e.target.closest('tr[data-id]');if(tr)mark(tr)});
+  f.addEventListener('change',function(e){var tr=e.target.closest('tr[data-id]');if(!tr)return;mark(tr);
+    if(e.target.classList.contains('delbox'))tr.classList.toggle('todel',e.target.checked)});
+  f.addEventListener('submit',function(e){var d=f.querySelectorAll('.delbox:checked').length;
+    if(d&&!confirm('Delete '+d+' record(s)?')){e.preventDefault();return}f.dataset.sub=1});
+  window.addEventListener('beforeunload',function(e){if(n&&!f.dataset.sub){e.preventDefault();e.returnValue=''}});
+})();
+</script>
+{% endblock %}

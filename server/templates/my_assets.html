@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "_asset_tabs.html" import asset_icon %}
+{% block title %}My assets{% endblock %}
+{% block heading %}My assets{% endblock %}
+{% block content %}
+<div class="card"><div class="table-wrap"><table>
+  <thead><tr><th>Asset</th><th>Serial no.</th><th>Given on</th><th>Return by</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for a in rows %}
+    <tr><td>{{ asset_icon(a.category) }} <b>{{ a.asset_code }}</b> · {{ a.name }}<br><small>{{ a.brand or '' }} {{ a.model or '' }}</small></td>
+      <td>{{ a.serial_no or '—' }}</td><td>{{ a.assigned_on|nicedate }}</td><td>{{ a.expected_return|nicedate or '—' }}</td>
+      <td>{% if a.returned_on %}<span class="badge">Returned {{ a.returned_on|nicedate }}</span>{% else %}<span class="badge as-assigned">With me</span>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="5" class="empty">No company assets are assigned to you.</td></tr>{% endfor %}
+  </tbody>
+</table></div></div>
+{% endblock %}

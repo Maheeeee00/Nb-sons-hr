@@ -1,0 +1,9 @@
+{% macro pay_tabs(active, month=None) %}
+<nav class="subnav">
+  <a href="{{ url_for('payroll', month=month) if month else url_for('payroll') }}" class="{{ 'on' if active == 'salaries' }}"><span>💰</span> Salaries</a>
+  <a href="{{ url_for('loans') }}" class="{{ 'on' if active == 'loans' }}"><span>🏦</span> Loans{% if loans_pending %} <em>{{ loans_pending }}</em>{% endif %}</a>
+  {% if can('payroll.manage') %}<a href="{{ url_for('loans') }}#new-loan" class="{{ 'on' if active == 'new' }}"><span>➕</span> Give a Loan</a>{% endif %}
+  {% if month %}<a href="{{ url_for('payroll', month=month, export='csv') }}"><span>📥</span> Export Salaries</a>{% endif %}
+  <a href="{{ url_for('loans', export='csv', view='all') }}"><span>📥</span> Export Loans</a>
+</nav>
+{% endmacro %}

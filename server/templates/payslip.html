@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payslip {{ p.emp_code }} {{ p.month }}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="slip-page">
+<div class="slip-tools">
+  <button class="btn primary" onclick="window.print()">Print / Save as PDF</button>
+  <a class="btn" href="{{ url_for('payroll', month=p.month) if is_hr else url_for('my_payslips') }}">&larr; Back to {{ 'payroll' if is_hr else 'my payslips' }}</a>
+  <a class="btn" href="{{ url_for('dashboard') }}">🏠 Dashboard</a>
+</div>
+<div class="slip">
+  <div class="slip-head">
+    <div>
+      <h1>{{ settings.company_name }}</h1>
+      {% if settings.company_address %}<div class="muted">{{ settings.company_address }}</div>{% endif %}
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:18px;font-weight:700">SALARY SLIP</div>
+      <div>{{ p.month|monthname }}</div>
+      <div>{% if p.status == 'paid' %}Paid on {{ p.paid_on|nicedate }}{% else %}<span class="badge b-draft">Draft</span>{% endif %}</div>
+    </div>
+  </div>
+  <div class="grid g2" style="margin-bottom:16px">
+    <dl class="kv">
+      <dt>Employee</dt><dd><b>{{ p.name }}</b></dd>
+      <dt>Code</dt><dd>{{ p.emp_code }}</dd>
+      <dt>Designation</dt><dd>{{ p.designation or '—' }}</dd>
+      <dt>Department</dt><dd>{{ p.dept or '—' }}</dd>
+    </dl>
+    <dl class="kv">
+      <dt>CNIC</dt><dd>{{ p.cnic or '—' }}</dd>
+      <dt>Bank account</dt><dd>{{ p.bank_account or '—' }}</dd>
+      <dt>Working days</dt><dd>{{ p.working_days }}</dd>
+      <dt>Present / Absent</dt><dd>{{ p.present_days|num }} / {{ p.absent_days|num }}{% if p.unpaid_leave_days %} · unpaid leave {{ p.unpaid_leave_days|num }}{% endif %}</dd>
+    </dl>
+  </div>
+  <div class="grid g2">
+    <table>
+      <thead><tr><th>Earnings</th><th class="num">{{ settings.currency }}</th></tr></thead>
+      <tbody>{% for l, v in earnings %}<tr><td>{{ l }}</td><td class="num">{{ v|money }}</td></tr>{% endfor %}</tbody>
+      <tfoot><tr><td>Gross earnings</td><td class="num">{{ gross|money }}</td></tr></tfoot>
+    </table>
+    <table>
+      <thead><tr><th>Deductions</th><th class="num">{{ settings.currency }}</th></tr></thead>
+      <tbody>{% for l, v in deductions %}<tr><td>{{ l }}</td><td class="num">{{ v|money }}</td></tr>{% endfor %}</tbody>
+      <tfoot><tr><td>Total deductions</td><td class="num">{{ total_ded|money }}</td></tr></tfoot>
+    </table>
+  </div>
+  <div class="net"><span>Net salary</span><span>{{ settings.currency }} {{ p.net|money }}</span></div>
+  {% if p.remarks %}<p><b>Remarks:</b> {{ p.remarks }}</p>{% endif %}
+  <div class="sign"><div>Employee signature</div><div>Authorized signature</div></div>
+  <p class="muted" style="font-size:11px;text-align:center;margin-top:30px">Computer-generated payslip · {{ settings.company_name }} HR System</p>
+</div>
+</body>
+</html>

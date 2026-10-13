@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% from "_m.html" import badge %}
+{% from "_asset_tabs.html" import asset_tabs, asset_icon with context %}
+{% block title %}Assets{% endblock %}
+{% block heading %}Assets{% endblock %}
+{% block actions %}{% if can('assets.manage') %}<a class="btn" href="{{ url_for('assets_assign') }}">🤝 Assign asset</a><a class="btn primary" href="{{ url_for('asset_new') }}">+ Add asset</a>{% endif %}{% endblock %}
+{% block content %}
+{{ asset_tabs('list') }}
+<div class="stats">
+  <div class="stat"><div class="v">{{ stats.values()|sum }}</div><div class="l">Total assets</div></div>
+  <div class="stat ok"><div class="v">{{ stats.available or 0 }}</div><div class="l">Available</div></div>
+  <div class="stat info"><div class="v">{{ stats.assigned or 0 }}</div><div class="l">Assigned to staff</div></div>
+  <div class="stat warn"><div class="v">{{ stats.repair or 0 }}</div><div class="l">In repair</div></div>
+  <div class="stat bad"><div class="v">{{ overdue }}</div><div class="l">Overdue returns</div></div>
+  <div class="stat"><div class="v">{{ value|money }}</div><div class="l">Value ({{ settings.currency }})</div></div>
+</div>
+<div class="card">
+  <form class="inline" method="get" style="margin-bottom:14px">
+    <div><label>Search</label><input name="q" value="{{ term }}" placeholder="Code, name, serial, brand, employee…" style="min-width:240px"></div>
+    <div><label>Category</label><select name="cat"><option value="">All</option>{% for c in cats %}<option {{ 'selected' if cat == c }}>{{ c }}</option>{% endfor %}</select></div>
+    <div><label>Status</label><select name="st"><option value="">All</option>{% for s in statuses %}<option value="{{ s }}" {{ 'selected' if st == s }}>{{ s|title }}</option>{% endfor %}</select></div>
+    <button class="btn">Filter</button>
+  </form>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Code</th><th>Asset</th><th>Category</th><th>Serial no.</th><th>Condition</th><th>Status</th><th>With</th><th class="num">Cost</th><th></th></tr></thead>
+    <tbody>
+    {% for a in rows %}
+      <tr>
+        <td><b>{{ a.asset_code }}</b></td>
+        <td><a href="{{ url_for('asset_view', aid=a.id) }}"><b>{{ asset_icon(a.category) }} {{ a.name }}</b></a>{% if a.brand or a.model %}<br><small>{{ a.brand or '' }} {{ a.model or '' }}</small>{% endif %}</td>
+        <td>{{ a.category or '—' }}</td><td>{{ a.serial_no or '—' }}</td><td>{{ a.condition or '—' }}</td>
+        <td><span class="badge as-{{ a.status }}">{{ a.status|title }}</span></td>
+        <td>{% if a.emp_name %}<a href="{{ url_for('employee_view', eid=a.emp_id) }}">{{ a.emp_name }}</a><br><small>since {{ a.assigned_on|nicedate }}</small>{% else %}—{% endif %}</td>
+        <td class="num">{{ a.cost|money }}</td>
+        <td><a class="btn sm" href="{{ url_for('asset_view', aid=a.id) }}">Open</a></td>
+      </tr>
+    {% else %}<tr><td colspan="9" class="empty">No assets found.{% if can('assets.manage') %} <a href="{{ url_for('asset_new') }}">Add the first one</a>.{% endif %}</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

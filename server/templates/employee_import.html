@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf, badge %}
+{% from "_emp_tabs.html" import emp_tabs, source_badge with context %}
+{% block title %}Import employees{% endblock %}
+{% block heading %}Import employees{% endblock %}
+{% block actions %}<a class="btn" href="{{ url_for('employees') }}">&larr; Employees</a>{% endblock %}
+{% block content %}
+{{ emp_tabs('import') }}
+{% if step == 'upload' %}
+<div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h2>📤 Step 1 · Upload your file</h2></div>
+    <form method="post" enctype="multipart/form-data" class="grid">
+      {{ csrf() }}
+      <label class="drop" id="drop">
+        <input type="file" name="file" accept=".xlsx,.xlsm,.csv" required onchange="document.getElementById('fn').textContent=this.files[0]?this.files[0].name:''">
+        <span class="big">📄</span>
+        <b>Click to choose an Excel (.xlsx) or CSV file</b>
+        <small>or drag and drop it here</small>
+        <span id="fn" class="fn"></span>
+      </label>
+      <label class="check"><input type="checkbox" name="update_existing" value="1" checked> Update employees that already exist (matched by Employee Code or CNIC)</label>
+      <div><button class="btn primary big">Check file &rarr;</button></div>
+      <p class="muted" style="margin:0;font-size:12.5px">Nothing is saved yet. You'll see a preview first and confirm.</p>
+    </form>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>📋 Don't have a file ready?</h2></div>
+    <p style="margin-top:0">Download the template, fill one employee per row in Excel, save, and upload it here.</p>
+    <a class="btn primary" href="{{ url_for('employee_import_template') }}">⬇️ Download Excel template</a>
+    <ul class="tips">
+      <li>Only <b>Full Name</b> is required. Every other column is optional.</li>
+      <li>You can also upload your <b>own Excel sheet</b>: headings like <i>Name, Department, Designation, Salary, Joining Date, CNIC, Mobile</i> are recognised automatically.</li>
+      <li>Leave <b>Employee Code</b> empty to auto-number (EMP-0001…).</li>
+      <li>Dates as <b>DD/MM/YYYY</b>. New departments are created automatically.</li>
+      <li>Fill <b>Login Username + Password</b> to give that employee a login.</li>
+      <li>Tip: the <b>Export to Excel</b> file from the Employees page can be edited and imported back to update many employees at once.</li>
+    </ul>
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <div><h2>👥 Employees in the system</h2><small>Everyone, whether added by hand or imported from Excel</small></div>
+    <a class="btn sm" href="{{ url_for('employees', export='csv', status='all') }}">📥 Export this list</a>
+  </div>
+  <div class="tabs">
+    {% set total = (src_counts.manual or 0) + (src_counts['import'] or 0) %}
+    <a href="{{ url_for('employee_import', source='all') }}" class="{{ 'on' if src == 'all' }}">All ({{ total }})</a>
+    <a href="{{ url_for('employee_import', source='manual') }}" class="{{ 'on' if src == 'manual' }}">✍️ Added manually ({{ src_counts.manual or 0 }})</a>
+    <a href="{{ url_for('employee_import', source='import') }}" class="{{ 'on' if src == 'import' }}">📤 Imported ({{ src_counts['import'] or 0 }})</a>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Code</th><th>Name</th><th>Added</th><th>Department</th><th>Designation</th><th>Status</th><th>Joined</th><th class="num">Salary</th><th>Login</th><th>CNIC</th><th>Phone</th></tr></thead>
+    <tbody>
+    {% for e in staff %}
+      <tr><td>{{ e.emp_code }}</td><td><a href="{{ url_for('employee_view', eid=e.id) }}"><b>{{ e.name }}</b></a></td><td>{{ source_badge(e.source) }}</td>
+        <td>{{ e.dept or '—' }}</td><td>{{ e.designation or '—' }}</td><td>{{ badge(e.status) }}</td>
+        <td>{{ e.join_date|nicedate or '—' }}</td><td class="num">{{ ((e.basic_salary or 0) + (e.allowances or 0))|money }}</td>
+        <td>{{ e.uname or '—' }}</td><td>{{ e.cnic or '—' }}</td><td>{{ e.phone or '—' }}</td></tr>
+    {% else %}
+      <tr><td colspan="11" class="empty">No employees here yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<details class="card">
+  <summary style="cursor:pointer;font-weight:600">Columns recognised in import files</summary>
+  <div class="btns" style="margin-top:12px">{% for c in cols %}<span class="badge">{{ labels[c] }}</span>{% endfor %}</div>
+</details>
+
+{% else %}
+<div class="stats">
+  <div class="stat ok"><div class="v">{{ counts.new or 0 }}</div><div class="l">New employees</div></div>
+  <div class="stat info"><div class="v">{{ counts['update'] or 0 }}</div><div class="l">Will be updated</div></div>
+  <div class="stat"><div class="v">{{ counts.skip or 0 }}</div><div class="l">Already exist (skipped)</div></div>
+  <div class="stat bad"><div class="v">{{ counts.error or 0 }}</div><div class="l">Rows with errors</div></div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <div><h2>👀 Step 2 · Check and confirm</h2>
+      <small>{{ filename }} · columns found: {{ found_cols|join(', ') }}</small></div>
+    <div class="btns">
+      <a class="btn" href="{{ url_for('employee_import') }}">Upload a different file</a>
+      {% if (counts.new or 0) + (counts['update'] or 0) %}
+      <form method="post" action="{{ url_for('employee_import_confirm') }}">{{ csrf() }}<input type="hidden" name="token" value="{{ token }}">
+        <button class="btn primary">✅ Import {{ (counts.new or 0) + (counts['update'] or 0) }} employee(s)</button></form>
+      {% endif %}
+    </div>
+  </div>
+  {% if new_depts %}<div class="note">New departments will be created: <b>{{ new_depts|join(', ') }}</b></div>{% endif %}
+  {% if counts.error %}<div class="flash error">Rows with errors will be skipped. Fix them in your file and upload again, or import the good rows now.</div>{% endif %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Row</th><th>Result</th><th>Code</th><th>Name</th><th>Department</th><th>Designation</th><th>Manager</th><th>Joined</th><th class="num">Basic</th><th class="num">Allow.</th><th>CNIC</th><th>Phone</th><th>Notes</th></tr></thead>
+    <tbody>
+    {% for r in rows %}{% set d = r.data %}
+      <tr>
+        <td>{{ r.line }}</td>
+        <td>{% if r.action == 'new' %}<span class="badge b-active">New</span>{% elif r.action == 'update' %}<span class="badge b-leave">Update</span>
+            {% elif r.action == 'skip' %}<span class="badge">Skip</span>{% else %}<span class="badge b-absent">Error</span>{% endif %}</td>
+        <td>{{ d.emp_code or 'auto' }}</td><td><b>{{ d.name }}</b></td><td>{{ d.department }}</td><td>{{ d.designation }}</td><td>{{ d.manager }}</td>
+        <td>{{ d.join_date|nicedate }}</td><td class="num">{{ d.basic_salary|money if d.basic_salary is not none else '' }}</td>
+        <td class="num">{{ d.allowances|money if d.allowances is not none else '' }}</td><td>{{ d.cnic }}</td><td>{{ d.phone }}</td>
+        <td class="wrap">{% for e in r.errors %}<div style="color:var(--bad)">⛔ {{ e }}</div>{% endfor %}
+          {% for w in r.warns %}<div style="color:var(--warn)">⚠️ {{ w }}</div>{% endfor %}
+          {% if r.action == 'skip' %}<small>Already exists; tick “update existing” to change it.</small>{% endif %}
+          {% if d.username %}<small>🔑 login: {{ d.username }}</small>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endif %}
+{% endblock %}

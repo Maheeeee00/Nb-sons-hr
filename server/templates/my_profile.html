@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}My profile{% endblock %}
+{% block heading %}My profile{% endblock %}
+{% block content %}
+<div class="card" style="max-width:640px">
+  <dl class="kv">
+    <dt>Name</dt><dd><b>{{ e.name }}</b></dd>
+    <dt>Employee code</dt><dd>{{ e.emp_code }}</dd>
+    <dt>Department</dt><dd>{{ e.dept or '—' }}</dd>
+    <dt>Designation</dt><dd>{{ e.designation or '—' }}</dd>
+    <dt>Employment</dt><dd>{{ e.employment_type or '—' }}</dd>
+    <dt>Joined</dt><dd>{{ e.join_date|nicedate or '—' }}</dd>
+    <dt>CNIC</dt><dd>{{ e.cnic or '—' }}</dd>
+    <dt>Phone</dt><dd>{{ e.phone or '—' }}</dd>
+    <dt>Email</dt><dd>{{ e.email or '—' }}</dd>
+    <dt>Address</dt><dd>{{ e.address or '—' }}</dd>
+    <dt>Bank account</dt><dd>{{ e.bank_account or '—' }}</dd>
+  </dl>
+  <p class="muted" style="font-size:12.5px;margin-bottom:0">If anything is wrong, please ask HR to update it.</p>
+</div>
+{% endblock %}

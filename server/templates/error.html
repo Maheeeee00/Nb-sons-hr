@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ code or 'Notice' }} · HR</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head>
+<body>
+<div class="login-wrap"><div class="login">
+  <div class="logo">HR</div>
+  <h1>{{ 'Error %s' % code if code else 'Notice' }}</h1>
+  <p>{{ msg }}</p>
+  <a class="btn primary" href="{{ url_for('dashboard') if user else url_for('login') }}">{{ 'Back to dashboard' if user else 'Sign in' }}</a>
+  {% if user %}<form method="post" action="{{ url_for('logout') }}" style="display:inline"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="btn">Log out</button></form>{% endif %}
+</div></div>
+</body>
+</html>

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% from "_asset_tabs.html" import asset_tabs, asset_icon with context %}
+{% block title %}{{ a.asset_code }}{% endblock %}
+{% block heading %}{{ asset_icon(a.category) }} {{ a.name }} <small style="font-size:14px;font-weight:400">· {{ a.asset_code }}</small> <span class="badge as-{{ a.status }}">{{ a.status|title }}</span>{% endblock %}
+{% block actions %}{% if can('assets.manage') %}<a class="btn primary" href="{{ url_for('asset_edit', aid=a.id) }}">✏️ Edit</a>{% endif %}{% endblock %}
+{% block content %}
+{{ asset_tabs('') }}
+<div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h2>📋 Details</h2></div>
+    <dl class="kv">
+      <dt>Category</dt><dd>{{ a.category or '—' }}</dd>
+      <dt>Brand / model</dt><dd>{{ a.brand or '—' }} {{ a.model or '' }}</dd>
+      <dt>Serial / IMEI</dt><dd>{{ a.serial_no or '—' }}</dd>
+      <dt>Purchased</dt><dd>{{ a.purchase_date|nicedate or '—' }}</dd>
+      <dt>Cost</dt><dd>{{ settings.currency }} {{ a.cost|money }}</dd>
+      <dt>Condition</dt><dd>{{ a.condition or '—' }}</dd>
+      <dt>Location</dt><dd>{{ a.location or '—' }}</dd>
+      <dt>Notes</dt><dd>{{ a.notes or '—' }}</dd>
+    </dl>
+  </div>
+  <div class="card">
+    {% if a.status == 'assigned' %}
+      <div class="card-head"><h2>👤 Currently with</h2></div>
+      <div class="holder">
+        <span class="av">{{ (a.emp_name.split()|map('first')|join)[:2]|upper }}</span>
+        <div><a href="{{ url_for('employee_view', eid=a.employee_id) }}"><b>{{ a.emp_name }}</b></a><br>
+          <small>{{ a.emp_code }} · since {{ a.assigned_on|nicedate }}{% if a.expected_return %} · return by {{ a.expected_return|nicedate }}{% endif %}</small></div>
+      </div>
+      {% if a.expected_return and a.expected_return < today.isoformat() %}<div class="flash error" style="margin-top:10px">Return is overdue.</div>{% endif %}
+      {% if can('assets.manage') %}
+      <form method="post" action="{{ url_for('asset_return', aid=a.id) }}" class="form-grid" style="margin-top:14px">
+        {{ csrf() }}
+        <div><label>Returned on</label><input type="date" name="returned_on" value="{{ today.isoformat() }}"></div>
+        <div><label>Condition on return</label><select name="condition">{% for c in conds %}<option {{ 'selected' if a.condition == c }}>{{ c }}</option>{% endfor %}</select></div>
+        <div><label>After return</label><select name="new_status"><option value="available">Back to store (available)</option><option value="repair">Send for repair</option><option value="retired">Retire</option><option value="lost">Mark lost</option></select></div>
+        <div><label>Notes</label><input name="notes" placeholder="Optional"></div>
+        <div><button class="btn primary">↩️ Record return</button></div>
+      </form>
+      {% endif %}
+    {% else %}
+      <div class="card-head"><h2>🤝 Assign this asset</h2></div>
+      {% if a.status != 'available' %}<p class="muted">This asset is <b>{{ a.status }}</b>. Change its status to Available (Edit) before assigning.</p>
+      {% elif can('assets.manage') %}
+      <form method="post" action="{{ url_for('asset_assign', aid=a.id) }}" class="form-grid">
+        {{ csrf() }}
+        <div class="full"><label>Employee</label><select name="employee_id" required><option value="">Choose…</option>
+          {% for e in emps %}<option value="{{ e.id }}">{{ e.name }} ({{ e.emp_code }})</option>{% endfor %}</select></div>
+        <div><label>Assigned on</label><input type="date" name="assigned_on" value="{{ today.isoformat() }}"></div>
+        <div><label>Expected return</label><input type="date" name="expected_return"></div>
+        <div><label>Condition given</label><select name="condition">{% for c in conds %}<option {{ 'selected' if a.condition == c }}>{{ c }}</option>{% endfor %}</select></div>
+        <div><label>Notes</label><input name="notes" placeholder="e.g. with charger & bag"></div>
+        <div><button class="btn primary">🤝 Assign</button></div>
+      </form>
+      {% else %}<p class="muted">Available in store.</p>{% endif %}
+    {% endif %}
+  </div>
+</div>
+<div class="card">
+  <div class="card-head"><h2>🕘 Assignment history</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Employee</th><th>Given</th><th>Returned</th><th>Condition out → in</th><th>Notes</th><th>By</th></tr></thead>
+    <tbody>
+    {% for h in hist %}
+      <tr><td>{% if h.employee_id %}<a href="{{ url_for('employee_view', eid=h.employee_id) }}"><b>{{ h.ename }}</b></a>{% else %}<b>{{ h.ename }}</b>{% endif %}<br><small>{{ h.emp_code or '' }}</small></td>
+        <td>{{ h.assigned_on|nicedate }}{% if h.expected_return %}<br><small>due {{ h.expected_return|nicedate }}</small>{% endif %}</td>
+        <td>{% if h.returned_on %}{{ h.returned_on|nicedate }}{% else %}<span class="badge as-assigned">Still with them</span>{% endif %}</td>
+        <td>{{ h.condition_out or '—' }} → {{ h.condition_in or '—' }}</td>
+        <td class="wrap">{{ h.notes or '' }}{% if h.return_notes %}<br><small>Return: {{ h.return_notes }}</small>{% endif %}</td>
+        <td><small>{{ h.assigned_by or '' }}{% if h.received_by %} / {{ h.received_by }}{% endif %}</small></td></tr>
+    {% else %}<tr><td colspan="6" class="empty">Never assigned yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% if can('assets.manage') and a.status != 'assigned' %}
+<form method="post" action="{{ url_for('asset_delete', aid=a.id) }}" onsubmit="return confirm('Delete {{ a.asset_code }} and its history permanently? To keep history, set status to Retired instead.')">
+  {{ csrf() }}<button class="btn danger sm">🗑 Delete asset</button>
+</form>
+{% endif %}
+{% endblock %}

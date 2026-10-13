@@ -1,0 +1,36 @@
+{% macro hero() %}
+<section class="hero">
+  <div>
+    <h1>{{ greeting }}, {{ (user.emp_name or user.username).split(' ')[0]|title }} 👋</h1>
+    <div class="sub">{{ settings.company_name }}{% if user.role != 'employee' %} · {{ user.role|upper }} panel{% endif %}</div>
+    <div class="heroact">{{ caller() }}</div>
+  </div>
+  <div class="quote">
+    <div class="q" id="q"></div>
+    <small id="qs"></small>
+    <div class="dots" id="qd"></div>
+  </div>
+  <div class="when">
+    <div class="d">{{ now.strftime('%d %b %Y') }}</div>
+    <div class="t" id="clk">{{ now.strftime('%H:%M:%S') }}</div>
+    <div class="w">{{ now.strftime('%A') }}</div>
+  </div>
+</section>
+<script>
+(function(){
+  var Q=[["فَإِنَّ مَعَ الْعُسْرِ يُسْرًا","Indeed, with hardship comes ease — Ash-Sharh 94:5"],
+    ["Small steps every day add up to big results.","Daily reminder"],
+    ["A team that is respected is a team that performs.","People first"],
+    ["Be on time, be prepared, be kind.","Workplace values"],
+    ["Quality is never an accident; it is the result of effort.","Excellence"],
+    ["Together we achieve more.","Teamwork"]];
+  var i=0,q=document.getElementById('q'),s=document.getElementById('qs'),d=document.getElementById('qd');
+  Q.forEach(function(){d.appendChild(document.createElement('i'))});
+  function show(){q.style.opacity=0;setTimeout(function(){q.textContent=Q[i][0];s.textContent=Q[i][1];q.style.opacity=1;
+    [].forEach.call(d.children,function(c,k){c.className=k===i?'on':''});i=(i+1)%Q.length},300)}
+  show();setInterval(show,7000);
+  var c=document.getElementById('clk');
+  setInterval(function(){var n=new Date();c.textContent=[n.getHours(),n.getMinutes(),n.getSeconds()].map(function(x){return('0'+x).slice(-2)}).join(':')},1000);
+})();
+</script>
+{% endmacro %}

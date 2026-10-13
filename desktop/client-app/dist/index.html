@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>NB Sons HR</title>
+<style>
+  :root{--teal:#0e7c86;--navy:#0f2a44;--bad:#b91c1c}
+  *{box-sizing:border-box} html,body{height:100%;margin:0}
+  body{font-family:"Segoe UI",Inter,Arial,sans-serif;background:radial-gradient(1200px 600px at 80% -10%,#14b8a6 0,transparent 55%),
+       linear-gradient(135deg,#0f2a44,#0b3b52);color:#1f2937;display:grid;place-items:center;padding:24px}
+  .card{width:min(520px,100%);background:#fff;border-radius:20px;padding:28px 28px 22px;box-shadow:0 24px 60px rgba(0,0,0,.35)}
+  .head{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+  .logo{width:52px;height:52px;border-radius:15px;display:grid;place-items:center;font-weight:800;font-size:19px;color:#fff;
+        background:linear-gradient(135deg,#14b8a6,#0e7c86)}
+  h1{font-size:20px;margin:0} .sub{color:#64748b;font-size:13.5px;margin-top:2px}
+  label{display:block;font-weight:600;font-size:13.5px;margin:8px 0 6px}
+  .row{display:flex;gap:8px}
+  input{flex:1;font:inherit;padding:11px 12px;border:1.5px solid #cbd5e1;border-radius:11px;outline:none;min-width:0}
+  input:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(14,124,134,.15)}
+  button{font:inherit;font-weight:700;border:0;border-radius:11px;padding:11px 16px;cursor:pointer}
+  .primary{background:var(--teal);color:#fff} .primary:hover{background:#0b6870}
+  .ghost{background:#eef6f7;color:var(--teal)} .ghost:hover{background:#dff0f1}
+  .wide{width:100%;margin-top:12px}
+  .or{display:flex;align-items:center;gap:10px;color:#94a3b8;font-size:12.5px;margin:16px 0 4px}
+  .or:before,.or:after{content:"";flex:1;height:1px;background:#e2e8f0}
+  .msg{display:none;margin-top:12px;border-radius:11px;padding:10px 12px;font-size:13.5px;line-height:1.45}
+  .msg.err{display:block;background:#fef2f2;color:var(--bad);border:1px solid #fecaca}
+  .msg.info{display:block;background:#f0fdfa;color:#115e59;border:1px solid #99f6e4}
+  .list{margin-top:10px;display:grid;gap:8px}
+  .srv{display:flex;align-items:center;gap:12px;border:1.5px solid #e2e8f0;border-radius:12px;padding:10px 12px;cursor:pointer;background:#fff;text-align:left;width:100%}
+  .srv:hover{border-color:var(--teal);background:#f0fdfa}
+  .srv b{display:block} .srv small{color:#64748b}
+  .dot{width:10px;height:10px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 4px #dcfce7;flex:none}
+  .help{color:#64748b;font-size:12.5px;margin-top:16px;line-height:1.5;border-top:1px solid #f1f5f9;padding-top:12px}
+  .center{text-align:center} .spin{width:30px;height:30px;margin:14px auto;border:4px solid #e2e8f0;border-top-color:var(--teal);border-radius:50%;animation:r .9s linear infinite}
+  @keyframes r{to{transform:rotate(360deg)}}
+  .offline .logo{background:linear-gradient(135deg,#f97316,#ef4444)}
+  [hidden]{display:none!important}
+</style></head>
+<body>
+<div class="card" id="card">
+  <div class="head"><div class="logo">HR</div>
+    <div><h1 id="title">NB Sons HR</h1><div class="sub" id="subtitle">Connect to your company's HR server</div></div></div>
+
+  <!-- connecting -->
+  <div id="v-connecting" hidden class="center"><div class="spin"></div><div id="connecting-text">Connecting…</div></div>
+
+  <!-- offline -->
+  <div id="v-offline" hidden>
+    <div class="msg err" style="display:block"><b>Can't reach the HR server</b><br>
+      <span id="off-server"></span><br>Make sure the server PC is switched on and <b>NB Sons HR Server</b> is running.</div>
+    <div class="msg info" style="display:block" id="off-retry">Trying again automatically…</div>
+    <div class="row" style="margin-top:12px"><button class="primary" style="flex:1" onclick="retryNow()">Try again now</button>
+      <button class="ghost" onclick="showSetup()">Change server</button></div>
+  </div>
+
+  <!-- setup -->
+  <div id="v-setup" hidden>
+    <label for="addr">Server address</label>
+    <div class="row"><input id="addr" placeholder="e.g. 192.168.1.20" autocomplete="off" spellcheck="false">
+      <button class="primary" onclick="manualConnect()">Connect</button></div>
+    <div class="msg" id="setup-msg"></div>
+    <div class="or">or</div>
+    <button class="ghost wide" id="findbtn" onclick="findServers()">🔍 Find the server on my network</button>
+    <div class="list" id="found"></div>
+    <div class="help">Where do I find the address? On the <b>server PC</b>, click the <b>NB Sons HR Server</b> icon near the clock —
+      it shows <i>“Other PCs connect to: …”</i>. You only need to do this once; the app remembers it.</div>
+  </div>
+</div>
+<script>
+  const T = window.__TAURI__ ? window.__TAURI__.core : null;
+  const $ = id => document.getElementById(id);
+  const q = new URLSearchParams(location.search);
+  let saved = null, timer = null;
+
+  function view(name) {
+    ['connecting', 'offline', 'setup'].forEach(v => $('v-' + v).hidden = v !== name);
+    $('card').classList.toggle('offline', name === 'offline');
+    $('subtitle').textContent = name === 'offline' ? 'Server not reachable' : "Connect to your company's HR server";
+  }
+  function setMsg(text, kind) { const m = $('setup-msg'); m.className = 'msg ' + (kind || ''); m.textContent = text || ''; }
+  function niceErr(e) { return (typeof e === 'string') ? e : (e && e.message) || 'Something went wrong.'; }
+
+  async function connect(addr) {
+    view('connecting'); $('connecting-text').textContent = 'Connecting to ' + addr + '…';
+    await T.invoke('connect', { addr });            // on success the window opens the HR system
+  }
+  async function manualConnect() {
+    const a = $('addr').value.trim();
+    if (!a) { setMsg('Please type the server address, for example 192.168.1.20', 'err'); return; }
+    try { await connect(a); } catch (e) { view('setup'); setMsg(niceErr(e), 'err'); }
+  }
+  function showSetup() {
+    clearInterval(timer); view('setup');
+    if (saved) $('addr').value = saved.replace(/^https?:\/\//, '').replace(/:5000$/, '');
+    $('addr').focus();
+  }
+  function showOffline(server) {
+    view('offline'); $('off-server').textContent = server ? 'Server: ' + server.replace(/^https?:\/\//, '') : '';
+    let n = 5; clearInterval(timer);
+    timer = setInterval(async () => {
+      n -= 1; $('off-retry').textContent = 'Trying again automatically in ' + Math.max(n, 0) + ' s…';
+      if (n <= 0) { n = 5; try { $('off-retry').textContent = 'Trying again…'; await T.invoke('connect', { addr: server }); clearInterval(timer); } catch (e) { view('offline'); } }
+    }, 1000);
+  }
+  async function retryNow() { try { await connect(saved); } catch (e) { showOffline(saved); } }
+  async function findServers() {
+    const b = $('findbtn'), list = $('found');
+    b.disabled = true; b.textContent = 'Searching your network… (about 5 seconds)'; list.innerHTML = ''; setMsg('');
+    let found = [];
+    try { found = await T.invoke('find_servers'); } catch (e) {}
+    b.disabled = false; b.textContent = '🔍 Find the server on my network';
+    if (!found.length) { setMsg('No HR server found on this network. Check the server PC is on and connected to the same network, or type its address above.', 'err'); return; }
+    found.forEach(s => {
+      const el = document.createElement('button'); el.className = 'srv';
+      el.innerHTML = '<span class="dot"></span><span><b></b><small></small></span>';
+      el.querySelector('b').textContent = s.company || 'NB Sons HR Server';
+      el.querySelector('small').textContent = s.url.replace(/^https?:\/\//, '') + (s.version ? '  ·  version ' + s.version : '');
+      el.onclick = async () => { try { await connect(s.url); } catch (e) { view('setup'); setMsg(niceErr(e), 'err'); } };
+      list.appendChild(el);
+    });
+    if (found.length === 1) setMsg('Found it! Click the server to connect.', 'info');
+  }
+  $('addr').addEventListener('keydown', e => { if (e.key === 'Enter') manualConnect(); });
+
+  (async () => {
+    if (!T) { view('setup'); return; }
+    saved = await T.invoke('get_saved');
+    if (q.has('change')) return showSetup();
+    if (q.has('offline') && saved) return showOffline(saved);
+    if (!saved) return showSetup();
+    try { await connect(saved); } catch (e) { showOffline(saved); }
+  })();
+</script>
+</body></html>

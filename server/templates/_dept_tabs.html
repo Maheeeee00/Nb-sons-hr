@@ -1,0 +1,7 @@
+{% macro dept_tabs(active) %}
+<nav class="subnav">
+  <a href="{{ url_for('departments') }}" class="{{ 'on' if active == 'list' }}"><span>🏢</span> All Departments</a>
+  <a href="{{ url_for('department_new') }}" class="{{ 'on' if active == 'add' }}"><span>➕</span> Add Department</a>
+  <a href="{{ url_for('departments_manage') }}" class="{{ 'on' if active == 'manage' }}"><span>🛠️</span> Manage Departments</a>
+</nav>
+{% endmacro %}

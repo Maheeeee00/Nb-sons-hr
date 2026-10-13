@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% from "_asset_tabs.html" import asset_tabs, asset_icon with context %}
+{% block title %}Assign assets{% endblock %}
+{% block heading %}Assign / return assets{% endblock %}
+{% block content %}
+{{ asset_tabs('assign') }}
+<form method="post" class="card">
+  {{ csrf() }}
+  <div class="card-head"><h2>🤝 Give assets to an employee</h2><small>{{ available|length }} available in store</small></div>
+  <div class="grid g2">
+    <div>
+      <label>1 · Pick asset(s) <small class="muted">(tick one or more)</small></label>
+      <input type="search" placeholder="Filter assets…" oninput="fa(this.value)" style="margin-bottom:8px">
+      <div class="picklist" id="pl">
+        {% for a in available %}
+        <label class="pick"><input type="checkbox" name="asset_id" value="{{ a.id }}" {{ 'checked' if pre_asset == a.id|string }}>
+          <span>{{ asset_icon(a.category) }} <b>{{ a.asset_code }}</b> · {{ a.name }}<br><small>{{ a.category or '' }}{% if a.serial_no %} · S/N {{ a.serial_no }}{% endif %} · {{ a.condition }}</small></span></label>
+        {% else %}<p class="muted">No assets available. <a href="{{ url_for('asset_new') }}">Add an asset</a>.</p>{% endfor %}
+      </div>
+    </div>
+    <div class="form-grid" style="align-content:start">
+      <div class="full"><label>2 · Employee</label><select name="employee_id" required><option value="">Choose…</option>
+        {% for e in emps %}<option value="{{ e.id }}" {{ 'selected' if pre_emp == e.id|string }}>{{ e.name }} ({{ e.emp_code }}){% if e.designation %} · {{ e.designation }}{% endif %}</option>{% endfor %}</select></div>
+      <div><label>Assigned on</label><input type="date" name="assigned_on" value="{{ today.isoformat() }}"></div>
+      <div><label>Expected return</label><input type="date" name="expected_return"></div>
+      <div><label>Condition</label><select name="condition"><option value="">As recorded</option>{% for c in conds %}<option>{{ c }}</option>{% endfor %}</select></div>
+      <div><label>Notes</label><input name="notes" placeholder="e.g. with charger"></div>
+      <div class="full"><button class="btn primary big">🤝 Assign selected</button></div>
+    </div>
+  </div>
+</form>
+
+<div class="card">
+  <div class="card-head"><h2>📦 Assets currently with staff</h2><small>{{ out|length }} item(s)</small></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Employee</th><th>Asset</th><th>Since</th><th>Due back</th><th>Return</th></tr></thead>
+    <tbody>
+    {% for a in out %}
+      <tr>
+        <td><a href="{{ url_for('employee_view', eid=a.emp_id) }}"><b>{{ a.emp_name }}</b></a><br><small>{{ a.emp_code }}</small></td>
+        <td><a href="{{ url_for('asset_view', aid=a.id) }}">{{ asset_icon(a.category) }} <b>{{ a.asset_code }}</b> · {{ a.name }}</a></td>
+        <td>{{ a.assigned_on|nicedate }}</td>
+        <td>{% if a.expected_return %}<span class="{{ 'badge b-absent' if a.expected_return < today.isoformat() }}">{{ a.expected_return|nicedate }}</span>{% else %}—{% endif %}</td>
+        <td><form method="post" action="{{ url_for('asset_return', aid=a.id) }}" class="inline">{{ csrf() }}
+          <input type="hidden" name="next" value="{{ url_for('assets_assign') }}"><input type="hidden" name="returned_on" value="{{ today.isoformat() }}">
+          <select name="condition" style="min-width:110px">{% for c in conds %}<option {{ 'selected' if a.condition == c }}>{{ c }}</option>{% endfor %}</select>
+          <select name="new_status" style="min-width:120px"><option value="available">To store</option><option value="repair">To repair</option><option value="lost">Lost</option></select>
+          <button class="btn sm ok">↩️ Return</button></form></td>
+      </tr>
+    {% else %}<tr><td colspan="5" class="empty">No assets are out with staff right now.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+<script>function fa(v){v=v.toLowerCase();document.querySelectorAll('#pl .pick').forEach(function(p){p.style.display=p.textContent.toLowerCase().indexOf(v)>-1?'':'none'})}</script>
+{% endblock %}

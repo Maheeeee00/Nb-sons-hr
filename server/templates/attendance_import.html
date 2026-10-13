@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf, badge %}
+{% from "_att_tabs.html" import att_tabs with context %}
+{% block title %}Import attendance{% endblock %}
+{% block heading %}Import attendance{% endblock %}
+{% block content %}
+{{ att_tabs('import') }}
+{% if step == 'upload' %}
+<div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h2>📤 Step 1 · Upload attendance file</h2></div>
+    <form method="post" enctype="multipart/form-data" class="grid">
+      {{ csrf() }}
+      <label class="drop">
+        <input type="file" name="file" accept=".xlsx,.xlsm,.csv,.txt" required onchange="document.getElementById('fn').textContent=this.files[0]?this.files[0].name:''">
+        <span class="big">🗂️</span>
+        <b>Click to choose an Excel (.xlsx) or CSV file</b>
+        <small>Monthly sheet, daily list, or biometric machine export</small>
+        <span id="fn" class="fn"></span>
+      </label>
+      <div class="form-grid">
+        <div><label>Month <small class="muted">(only needed for monthly sheets)</small></label><input type="month" name="month" value="{{ month }}"></div>
+      </div>
+      <label class="check"><input type="checkbox" name="overwrite" value="1" checked> Replace days that are already marked</label>
+      <div><button class="btn primary big">Check file &rarr;</button></div>
+      <p class="muted" style="margin:0;font-size:12.5px">Nothing is saved yet. You'll see a preview first and confirm.</p>
+    </form>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>📋 Download a ready template</h2></div>
+    <p style="margin-top:0">Templates come pre-filled with all your active employees.</p>
+    <form method="get" action="{{ url_for('attendance_import_template') }}" class="inline" style="margin-bottom:10px">
+      <input type="hidden" name="kind" value="grid">
+      <div><label>Month</label><input type="month" name="month" value="{{ month }}"></div>
+      <button class="btn primary">⬇️ Monthly sheet (P / A / L …)</button>
+    </form>
+    <a class="btn" href="{{ url_for('attendance_import_template', kind='list') }}">⬇️ Daily list template</a>
+    <div class="fmtcards">
+      <div><b>🗓️ Monthly sheet</b>One row per employee, columns 1–31.
+        <code>Code     Name   1  2  3  4
+EMP-0001 Ali    P  P  L  A
+EMP-0002 Sara   P  LV LV P</code></div>
+      <div><b>📄 Daily list</b>One row per employee per day.
+        <code>Code     Date        Status In    Out
+EMP-0001 07/10/2026  P      09:02 17:05</code></div>
+      <div><b>🖐️ Biometric export</b>One row per punch: first punch = in, last = out, late detected automatically.
+        <code>AC-No  Name  Time
+12     Ali   07/10/2026 08:58
+12     Ali   07/10/2026 17:10</code></div>
+    </div>
+    <ul class="tips">
+      <li>Codes: <b>P</b> Present · <b>L</b> Late · <b>H</b> Half day · <b>A</b> Absent · <b>LV / CL / SL</b> Leave. Empty or OFF = skip.</li>
+      <li>Employees are matched by <b>Employee Code</b>, machine number (12 → EMP-0012), CNIC or exact name.</li>
+    </ul>
+  </div>
+</div>
+
+{% else %}
+<div class="stats">
+  <div class="stat ok"><div class="v">{{ counts.new or 0 }}</div><div class="l">New records</div></div>
+  <div class="stat info"><div class="v">{{ counts['update'] or 0 }}</div><div class="l">Will replace existing</div></div>
+  <div class="stat"><div class="v">{{ (counts.same or 0) + (counts.keep or 0) }}</div><div class="l">Unchanged / kept</div></div>
+  <div class="stat bad"><div class="v">{{ problems|length }}</div><div class="l">Problems</div></div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <div><h2>👀 Step 2 · Check and confirm</h2>
+      <small>{{ filename }} · {{ 'monthly sheet for ' ~ (month|monthname) if fmt == 'grid' else 'list / machine format' }} · {{ emp_count }} employee(s)
+        {% if dates %} · {{ dates[0]|nicedate }} to {{ dates[-1]|nicedate }}{% endif %}</small></div>
+    <div class="btns">
+      <a class="btn" href="{{ url_for('attendance_import') }}">Upload a different file</a>
+      {% set todo = (counts.new or 0) + (counts['update'] or 0) %}
+      {% if todo %}<form method="post" action="{{ url_for('attendance_import_confirm') }}">{{ csrf() }}<input type="hidden" name="token" value="{{ token }}">
+        <button class="btn primary">✅ Import {{ todo }} record(s)</button></form>{% endif %}
+    </div>
+  </div>
+  {% if counts.keep %}<div class="note">{{ counts.keep }} day(s) are already marked differently and will be <b>kept</b>. Tick “Replace days that are already marked” to overwrite them.</div>{% endif %}
+  {% if problems %}
+  <details class="flash error" {{ 'open' if problems|length < 15 }}>
+    <summary style="cursor:pointer"><b>{{ problems|length }} row(s) couldn't be used</b> (they will be skipped)</summary>
+    <ul style="margin:8px 0 0">{% for p in problems[:200] %}<li>Row {{ p.line }} · {{ p.who }}: {{ p.msg }}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Date</th><th>Employee</th><th>Status</th><th>In</th><th>Out</th><th>Note</th><th>Result</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr><td>{{ r.date|nicedate }} <small>{{ (r.date|dayname)[:3] }}</small></td><td><b>{{ r.name }}</b> <small>{{ r.code }}</small></td>
+        <td>{{ badge(r.status) }}</td><td>{{ r['in'] or '' }}</td><td>{{ r.out or '' }}</td><td>{{ r.note or '' }}</td>
+        <td>{% if r.action == 'new' %}<span class="badge b-active">New</span>{% elif r.action == 'update' %}<span class="badge b-leave">Replace {{ r.old|replace('_',' ') }}</span>
+          {% elif r.action == 'keep' %}<span class="badge">Keep {{ r.old|replace('_',' ') }}</span>{% else %}<span class="badge">Same</span>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="7" class="empty">No usable rows.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  {% if total > rows|length %}<p class="muted">Showing first {{ rows|length }} of {{ total }} rows. All of them will be imported.</p>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

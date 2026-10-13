@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% from "_emp_tabs.html" import emp_tabs with context %}
+{% block title %}{{ 'Add employee' if new else 'Edit employee' }}{% endblock %}
+{% block heading %}{{ 'Add employee' if new else 'Edit ' ~ e.name }}{% endblock %}
+{% block actions %}<a class="btn" href="{{ url_for('employees') if new else url_for('employee_view', eid=eid) }}">Cancel</a>{% endblock %}
+{% block content %}
+{{ emp_tabs('add' if new else 'edit') }}
+<form method="post" class="card">
+  {{ csrf() }}
+  <fieldset><legend>Personal details</legend>
+    <div class="form-grid">
+      <div><label>Employee code</label><input name="emp_code" value="{{ code }}"></div>
+      <div><label>Full name *</label><input name="name" value="{{ e.name or '' }}" required></div>
+      <div><label>Father / husband name</label><input name="father_name" value="{{ e.father_name or '' }}"></div>
+      <div><label>CNIC / National ID</label><input name="cnic" value="{{ e.cnic or '' }}" placeholder="12345-1234567-1"></div>
+      <div><label>Gender</label><select name="gender">
+        {% for gdr in ['', 'Male', 'Female', 'Other'] %}<option {{ 'selected' if (e.gender or '') == gdr }}>{{ gdr }}</option>{% endfor %}</select></div>
+      <div><label>Date of birth</label><input type="date" name="dob" value="{{ e.dob or '' }}"></div>
+      <div><label>Phone</label><input name="phone" value="{{ e.phone or '' }}"></div>
+      <div><label>Email</label><input type="email" name="email" value="{{ e.email or '' }}"></div>
+      <div><label>Emergency contact</label><input name="emergency_contact" value="{{ e.emergency_contact or '' }}" placeholder="Name & phone"></div>
+      <div class="full"><label>Address</label><input name="address" value="{{ e.address or '' }}"></div>
+    </div>
+  </fieldset>
+  <fieldset><legend>Job</legend>
+    <div class="form-grid">
+      <div><label>Department</label><select name="department_id"><option value="">—</option>
+        {% for d in depts %}<option value="{{ d.id }}" {{ 'selected' if e.department_id == d.id }}>{{ d.name }}</option>{% endfor %}</select></div>
+      <div><label>Designation</label><input name="designation" value="{{ e.designation or '' }}"></div>
+      <div><label>Reporting manager</label><select name="manager_id"><option value="">— No manager —</option>
+        {% for m in managers %}<option value="{{ m.id }}" {{ 'selected' if e.manager_id == m.id }}>{{ m.name }} ({{ m.emp_code }}){% if m.designation %} – {{ m.designation }}{% endif %}</option>{% endfor %}</select></div>
+      <div><label>Joining date</label><input type="date" name="join_date" value="{{ e.join_date or '' }}"></div>
+      <div><label>Employment type</label><select name="employment_type">
+        {% for t in ['Permanent', 'Contract', 'Probation', 'Intern', 'Daily wages'] %}<option {{ 'selected' if e.employment_type == t }}>{{ t }}</option>{% endfor %}</select></div>
+      <div><label>Status</label><select name="status">
+        <option value="active" {{ 'selected' if e.status == 'active' }}>Active</option>
+        <option value="inactive" {{ 'selected' if e.status == 'inactive' }}>Inactive (left)</option></select></div>
+    </div>
+  </fieldset>
+  <fieldset><legend>Salary ({{ settings.currency }} per month)</legend>
+    <div class="form-grid">
+      <div><label>Basic salary</label><input type="number" step="any" min="0" name="basic_salary" value="{{ (e.basic_salary or 0)|num }}"></div>
+      <div><label>Allowances (house rent, medical, travel…)</label><input type="number" step="any" min="0" name="allowances" value="{{ (e.allowances or 0)|num }}"></div>
+      <div><label>Bank account / IBAN</label><input name="bank_account" value="{{ e.bank_account or '' }}"></div>
+    </div>
+  </fieldset>
+  <button class="btn primary">{{ 'Add employee' if new else 'Save changes' }}</button>
+</form>
+{% endblock %}

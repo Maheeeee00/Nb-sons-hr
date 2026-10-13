@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "_m.html" import badge, csrf %}
+{% block title %}My leaves{% endblock %}
+{% block heading %}My leaves{% endblock %}
+{% block content %}
+<div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h2>Apply for leave</h2></div>
+    <form method="post" class="form-grid">
+      {{ csrf() }}
+      <div class="full"><label>Leave type</label><select name="leave_type_id" required>
+        {% for t in types %}<option value="{{ t.id }}">{{ t.name }}{% if not t.paid %} (unpaid){% endif %}</option>{% endfor %}</select></div>
+      <div><label>From</label><input type="date" name="start_date" required min="{{ today.replace(day=1).isoformat() }}"></div>
+      <div><label>To</label><input type="date" name="end_date" required></div>
+      <div class="full"><label>Reason</label><textarea name="reason" required></textarea></div>
+      <div><button class="btn primary">Send request</button></div>
+    </form>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Balance {{ today.year }}</h2></div>
+    <div class="bal">
+      {% for b in balances %}
+        <div><small>{{ b.name }}</small>
+          {% if b.remaining is not none %}<b>{{ b.remaining|num }}</b><small>of {{ b.allowed }} left{% if b.pending %} · {{ b.pending|num }} pending{% endif %}</small>
+          {% else %}<b>{{ b.used|num }}</b><small>days used{% if not b.paid %} · unpaid{% endif %}</small>{% endif %}</div>
+      {% endfor %}
+    </div>
+    <p class="muted" style="font-size:12.5px;margin-bottom:0">Weekly off days are not counted. Unpaid leave is deducted from salary.</p>
+  </div>
+</div>
+<div class="card">
+  <div class="card-head"><h2>My requests</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Type</th><th>From</th><th>To</th><th class="num">Days</th><th>Reason</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for l in rows %}
+      <tr><td>{{ l.tname }}</td><td>{{ l.start_date|nicedate }}</td><td>{{ l.end_date|nicedate }}</td><td class="num">{{ l.days|num }}</td>
+        <td class="wrap">{{ l.reason or '' }}{% if l.remarks %}<br><small>HR: {{ l.remarks }}</small>{% endif %}</td>
+        <td>{{ badge(l.status) }}</td>
+        <td>{% if l.status == 'pending' %}<form method="post" action="{{ url_for('my_leave_cancel', lid=l.id) }}">{{ csrf() }}<button class="btn sm">Withdraw</button></form>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="7" class="empty">You haven't applied for any leave yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

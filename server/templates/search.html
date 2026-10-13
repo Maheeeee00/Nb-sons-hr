@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Search{% endblock %}
+{% block heading %}Search{% endblock %}
+{% block content %}
+<form class="card bigsearch" method="get">
+  <span>🔍</span><input name="q" value="{{ term }}" autofocus placeholder="Search employees, assets, attendance, leaves, departments… (tip: type a date like 07/10/2026)">
+  <button class="btn primary">Search</button>
+</form>
+{% if term %}
+  {% set total = groups|map(attribute='items')|map('length')|sum %}
+  <p class="muted">{{ total }} result(s) for “<b>{{ term }}</b>”</p>
+  <div class="grid g2">
+  {% for g in groups %}
+    <div class="card">
+      <div class="card-head"><h2>{{ g.icon }} {{ g.group }} <small class="muted">({{ g['items']|length }})</small></h2>{% if g.more %}<a href="{{ g.more }}">Open module →</a>{% endif %}</div>
+      <ul class="plist">
+      {% for it in g['items'] %}
+        <li><div class="grow"><b><a href="{{ it.url }}">{{ it.title }}</a></b><small>{{ it.sub }}</small></div>
+          {% if it.badge %}<span class="badge b-{{ it.badge }} as-{{ it.badge }}">{{ it.badge|replace('_',' ')|title }}</span>{% endif %}</li>
+      {% endfor %}
+      </ul>
+    </div>
+  {% else %}
+    <div class="card empty">Nothing found. Try a name, employee code, asset code, serial number or a date.</div>
+  {% endfor %}
+  </div>
+{% else %}
+  <div class="card"><ul class="tips" style="margin:0">
+    <li><b>Employees:</b> name, code (EMP-0012), CNIC, phone, designation</li>
+    <li><b>Assets:</b> asset code (AST-0003), name, serial number, brand, or the employee holding it</li>
+    <li><b>Attendance:</b> an employee's name for this month's summary, or a date like <code>07/10/2026</code></li>
+    <li><b>Leaves:</b> employee name, leave type, reason or status (pending, approved)</li>
+    <li>Press <b>/</b> anywhere to jump to the search box.</li>
+  </ul></div>
+{% endif %}
+{% endblock %}

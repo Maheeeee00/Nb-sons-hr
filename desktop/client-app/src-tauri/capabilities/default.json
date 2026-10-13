@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Local setup page only (the HR pages loaded from the server get no app access)",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

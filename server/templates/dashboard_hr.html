@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% from "_m.html" import badge %}
+{% from "_hero.html" import hero with context %}
+{% block title %}Dashboard{% endblock %}
+{% block crumb %}Dashboard{% endblock %}
+{% block hero %}
+{% call hero() %}
+  {% if can('attendance.manage') %}<a class="hbtn prime" href="{{ url_for('attendance_import') }}">📥 Import biometric attendance</a>{% endif %}
+  {% if can('attendance.view', 'attendance.manage') %}<a class="hbtn" href="{{ url_for('attendance_report') }}">📊 Attendance report</a>{% endif %}
+  {% if can('employees.manage') %}<a class="hbtn" href="{{ url_for('employee_new') }}">➕ Add employee</a>{% endif %}
+  {% if can('assets.manage') %}<a class="hbtn" href="{{ url_for('assets_assign') }}">💻 Assign asset</a>{% endif %}
+{% endcall %}
+
+{% if not workday %}<div class="note">🌙 Today is a weekly off day.</div>{% endif %}
+
+<div class="sec-title">⚡ Quick actions</div>
+<div class="tiles">
+  {% if can('employees.manage') %}<a class="tile t1" href="{{ url_for('employee_new') }}"><span class="ti">➕</span>New Employee</a>{% endif %}
+  {% if can('employees.view') %}<a class="tile t2" href="{{ url_for('employee_profiles') }}"><span class="ti">🪪</span>Employee Profiles</a>{% endif %}
+  {% if can('attendance.manage') %}<a class="tile t3" href="{{ url_for('attendance') }}"><span class="ti">✅</span>Daily Attendance</a>{% endif %}
+  {% if can('attendance.view', 'attendance.manage') %}<a class="tile t4" href="{{ url_for('attendance_report') }}"><span class="ti">📊</span>Monthly Report</a>{% endif %}
+  {% if can('leaves.view', 'leaves.approve') %}<a class="tile t5" href="{{ url_for('leaves') }}">{% if pending_leaves %}<span class="cnt">{{ pending_leaves }}</span>{% endif %}<span class="ti">🌴</span>Leaves</a>{% endif %}
+  {% if can('payroll.manage') %}<a class="tile t6" href="{{ url_for('payroll', month=month) }}"><span class="ti">💰</span>Generate Payroll</a>{% endif %}
+  {% if can('payroll.view') %}<a class="tile t7" href="{{ url_for('payroll', month=month) }}"><span class="ti">🖨️</span>Print Payslips</a>{% endif %}
+  {% if can('assets.view') %}<a class="tile t12" href="{{ url_for('assets') }}"><span class="ti">💻</span>Assets</a>{% endif %}
+  {% if can('departments.view') %}<a class="tile t8" href="{{ url_for('departments') }}"><span class="ti">🏢</span>Departments</a>{% endif %}
+  {% if can('employees.manage') %}<a class="tile t9" href="{{ url_for('employee_import') }}"><span class="ti">📤</span>Import Staff</a>{% endif %}
+  {% if can('users') %}<a class="tile t10" href="{{ url_for('roles_page') }}"><span class="ti">🛡️</span>Roles & Access</a>{% endif %}
+  {% if can('settings') %}<a class="tile t11" href="{{ url_for('settings_page') }}"><span class="ti">⚙️</span>Settings</a>{% endif %}
+</div>
+
+{% set present = (by.present or 0) + (by.late or 0) + (by.half_day or 0) %}
+{% set pct = (present * 100 / active)|round|int if active else 0 %}
+<div class="kpis">
+  <a class="kpi" href="{{ url_for('employees') }}"><span class="ki bg-a">👥</span><div><div class="kv2">{{ active }}</div><div class="kl">Active Employees</div></div></a>
+  <a class="kpi" href="{{ url_for('attendance') }}"><span class="ki bg-b">✅</span><div><div class="kv2">{{ present }}</div><div class="kl">Present Today{% if by.late %} · {{ by.late }} late{% endif %}</div>
+    <div class="bar"><i style="width:{{ pct }}%;background:#22c55e"></i></div></div></a>
+  <a class="kpi" href="{{ url_for('attendance') }}"><span class="ki bg-d">⛔</span><div><div class="kv2">{{ by.absent or 0 }}</div><div class="kl">Absent · {{ unmarked }} not marked</div></div></a>
+  <a class="kpi" href="{{ url_for('leaves') }}"><span class="ki bg-c">🌴</span><div><div class="kv2">{{ by.leave or 0 }}</div><div class="kl">On Leave · {{ pending_leaves }} pending</div></div></a>
+</div>
+{% endblock %}
+
+{% block content %}
+{% macro ini(n) %}{{ (n.split()|map('first')|join)[:2]|upper }}{% endmacro %}
+<div class="dash-cols">
+<div class="dcol">
+  <div class="card">
+    <div class="card-head"><h2>📈 Attendance — last 7 working days</h2><a href="{{ url_for('attendance_report') }}">Full report</a></div>
+    <div class="chart7">
+      {% for t in trend %}
+      <div class="col">
+        <span class="val">{{ t.present + t.late }}</span>
+        <div class="stack" title="{{ t.d|nicedate }}: present {{ t.present }}, late/half {{ t.late }}, leave {{ t.leave }}, absent {{ t.absent }}">
+          <i style="height:{{ t.present * 100 / tmax }}%;background:#22c55e"></i>
+          <i style="height:{{ t.late * 100 / tmax }}%;background:#f59e0b"></i>
+          <i style="height:{{ t.leave * 100 / tmax }}%;background:#3b82f6"></i>
+          <i style="height:{{ t.absent * 100 / tmax }}%;background:#ef4444"></i>
+        </div>
+        <span class="lbl">{{ t.d.strftime('%a') }}<br>{{ t.d.day }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="legend"><span><i class="sw" style="background:#22c55e"></i>Present</span><span><i class="sw" style="background:#f59e0b"></i>Late / half</span>
+      <span><i class="sw" style="background:#3b82f6"></i>Leave</span><span><i class="sw" style="background:#ef4444"></i>Absent</span></div>
+  </div>
+
+  {% set present = (by.present or 0) + (by.late or 0) + (by.half_day or 0) %}
+  <div class="card">
+    <div class="card-head"><h2>🕘 Today at the office</h2>{% if can('attendance.view', 'attendance.manage') %}<a href="{{ url_for('attendance') }}">Daily sheet</a>{% endif %}</div>
+    <div class="mini">
+      <div class="mg"><b>{{ by.present or 0 }}</b><small>On time</small></div>
+      <div class="my"><b>{{ (by.late or 0) + (by.half_day or 0) }}</b><small>Late / half</small></div>
+      <div class="mr"><b>{{ by.absent or 0 }}</b><small>Absent</small></div>
+      <div class="mb"><b>{{ by.leave or 0 }}</b><small>On leave</small></div>
+      <div class="mx"><b>{{ unmarked }}</b><small>No punch yet</small></div>
+    </div>
+    <div class="sub-h">⏰ Late arrivals</div>
+    {% if late_today %}
+    <ul class="plist">{% for r in late_today %}<li><span class="av" style="background:linear-gradient(135deg,#f59e0b,#c2410c)">{{ ini(r.name) }}</span>
+      <div class="grow"><b><a href="{{ url_for('employee_view', eid=r.id) }}">{{ r.name }}</a></b><small>{{ r.dept or '—' }}</small></div>
+      <span class="badge b-late">in {{ r.check_in or '—' }}</span></li>{% endfor %}</ul>
+    {% else %}<div class="okline">👍 No late arrivals today</div>{% endif %}
+    {% if absent_today %}
+    <div class="sub-h">⛔ Absent</div>
+    <div class="chips">{% for r in absent_today %}<a class="chip" href="{{ url_for('employee_view', eid=r.id) }}">{{ r.name }}</a>{% endfor %}</div>
+    {% endif %}
+    <p class="muted foot-note">📥 Attendance comes from the biometric machine{% if last_sync %} · latest data: <b>{{ last_sync|nicedate }}</b>{% else %} · no data imported yet{% endif %}.
+      {% if can('attendance.manage') %}<a href="{{ url_for('attendance_import') }}">Import now</a>{% endif %}</p>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>🏢 Headcount by department</h2><a href="{{ url_for('departments') }}">Manage</a></div>
+    <ul class="plist">
+      {% for d in depts %}
+      <li><div class="grow"><b>{{ d.name }}</b>
+        <div class="bar" style="height:6px;border-radius:4px;background:#eef2f6;margin-top:6px"><i style="display:block;height:100%;border-radius:4px;width:{{ d.c * 100 / dept_max }}%;background:linear-gradient(90deg,#14b8a6,#0ea5e9)"></i></div></div>
+        <b style="min-width:28px;text-align:right">{{ d.c }}</b></li>
+      {% else %}<li class="muted">No departments yet.</li>{% endfor %}
+    </ul>
+  </div>
+</div>
+
+<div class="dcol">
+  {% if can('payroll.view') %}
+  <div class="card">
+    <div class="card-head"><h2>💼 Payroll overview · {{ month|monthname }}</h2><a href="{{ url_for('payroll', month=month) }}">Open payroll</a></div>
+    <div class="fin">
+      <div class="f4"><small>Monthly salary bill</small><b>{{ settings.currency }} {{ monthly_bill|money }}</b></div>
+      <div class="f1"><small>Net payable (generated)</small><b>{{ settings.currency }} {{ pay.s|money }}</b></div>
+      <div class="f2"><small>Paid so far · {{ pay.p }} of {{ pay.c }}</small><b>{{ settings.currency }} {{ pay.paid_amt|money }}</b></div>
+      <div class="f3"><small>Total deductions</small><b>{{ settings.currency }} {{ pay.ded|money }}</b></div>
+    </div>
+    {% if not pay.c %}<p class="muted" style="margin:12px 0 0;font-size:13px">Payroll for this month hasn't been generated yet.</p>{% endif %}
+    {% if loans_pending %}<div class="loanline"><span>🏦 <b>{{ loans_pending }}</b> pending loan(s)</span><a class="btn sm" href="{{ url_for('loans') }}">View loans</a></div>{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-head"><h2>🌴 Leave overview</h2><a href="{{ url_for('leaves') }}">All leaves</a></div>
+    <div class="mini m4">
+      <div class="mb"><b>{{ on_leave|length }}</b><small>On leave today</small></div>
+      <div class="mt"><b>{{ upcoming_n }}</b><small>Next 14 days</small></div>
+      <div class="mp"><b>{{ leave_month.d|num }}</b><small>Days this month</small></div>
+      <div class="{{ 'my' if pend else 'mx' }}"><b>{{ pend|length }}</b><small>Waiting approval</small></div>
+    </div>
+    {% if pend %}
+    <div class="sub-h">⏳ Waiting for approval</div>
+    <ul class="plist">{% for l in pend %}<li><span class="av">{{ ini(l.name) }}</span>
+      <div class="grow"><b>{{ l.name }}</b><small>{{ l.tname }} · {{ l.start_date|nicedate }}{% if l.end_date != l.start_date %} – {{ l.end_date|nicedate }}{% endif %}</small></div>
+      <span class="badge b-pending">{{ l.days|num }} d</span></li>{% endfor %}</ul>
+    {% endif %}
+    <div class="sub-h">🏖️ On leave today</div>
+    {% if on_leave %}
+    <ul class="plist">{% for l in on_leave %}<li><span class="av" style="background:linear-gradient(135deg,#3b82f6,#0ea5e9)">{{ ini(l.name) }}</span>
+      <div class="grow"><b>{{ l.name }}</b><small>{{ l.tname }} · back after {{ l.end_date|nicedate }}</small></div></li>{% endfor %}</ul>
+    {% else %}<div class="okline">✅ Everyone is in today – no one on leave</div>{% endif %}
+    <div class="sub-h">📅 Coming up (next 14 days)</div>
+    {% if upcoming %}
+    <ul class="plist">{% for l in upcoming %}<li><span class="av" style="background:linear-gradient(135deg,#8b5cf6,#5b21b6)">{{ ini(l.name) }}</span>
+      <div class="grow"><b>{{ l.name }}</b><small>{{ l.tname }} · {{ l.start_date|nicedate }}{% if l.end_date != l.start_date %} – {{ l.end_date|nicedate }}{% endif %}</small></div>
+      <span class="badge">{{ l.days|num }} d</span></li>{% endfor %}</ul>
+    {% else %}<div class="okline muted-ok">No leave planned for the next two weeks</div>{% endif %}
+    {% if can('leaves.approve') %}<a class="btn sm" style="margin-top:12px" href="{{ url_for('leaves') }}">➕ Record a leave</a>{% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>✨ Newest team members</h2><a href="{{ url_for('employees') }}">All staff</a></div>
+    {% if new_joiners %}
+    <ul class="plist">{% for e in new_joiners %}<li><span class="av" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">{{ ini(e.name) }}</span>
+      <div class="grow"><b>{{ e.name }}</b><small>{{ e.designation or '—' }}{% if e.dept %} · {{ e.dept }}{% endif %}</small></div>
+      <small>{{ e.join_date|nicedate }}</small></li>{% endfor %}</ul>
+    {% else %}<p class="muted" style="margin:0">No employees yet. {% if can('employees.manage') %}<a href="{{ url_for('employee_new') }}">Add the first one</a>.{% endif %}</p>{% endif %}
+    {% if birthdays %}
+      <div class="sub-h">🎂 Birthdays in next 30 days</div>
+      <ul class="plist">{% for b in birthdays %}<li><div class="grow"><b>{{ b.name }}</b></div><small>{{ b.dob[5:]|replace('-', '/') }}</small></li>{% endfor %}</ul>
+    {% endif %}
+  </div>
+</div>
+</div>
+{% endblock %}

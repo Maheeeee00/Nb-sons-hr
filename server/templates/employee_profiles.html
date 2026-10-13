@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "_emp_tabs.html" import emp_tabs with context %}
+{% block title %}Employee profiles{% endblock %}
+{% block heading %}Employee profiles{% endblock %}
+{% block content %}
+{{ emp_tabs('profiles') }}
+<div class="card">
+  <form class="inline" method="get">
+    <div><label>Find</label><input name="q" value="{{ term }}" placeholder="Name, code, designation, phone…" style="min-width:240px"></div>
+    <div><label>Department</label><select name="dept"><option value="">All</option>
+      {% for d in depts %}<option value="{{ d.id }}" {{ 'selected' if request.args.dept == d.id|string }}>{{ d.name }}</option>{% endfor %}</select></div>
+    <div><label>Status</label><select name="status">
+      {% for s, l in [('active','Active'),('inactive','Inactive'),('all','All')] %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ l }}</option>{% endfor %}</select></div>
+    <button class="btn">Filter</button>
+    <span class="muted" style="align-self:center">{{ rows|length }} profile(s)</span>
+  </form>
+</div>
+<div class="pgrid">
+  {% for e in rows %}
+  {% set colors = ['#14b8a6,#0e7c86','#3b82f6,#1d4ed8','#f59e0b,#c2410c','#8b5cf6,#5b21b6','#ec4899,#be123c','#22c55e,#15803d','#0ea5e9,#0369a1','#ef4444,#991b1b'] %}
+  <a class="pcard" href="{{ url_for('employee_view', eid=e.id) }}">
+    <div class="pc-band" style="background:linear-gradient(135deg,{{ colors[e.id % 8] }})"></div>
+    <span class="pc-av" style="background:linear-gradient(135deg,{{ colors[e.id % 8] }})">{{ (e.name.split()|map('first')|join)[:2]|upper }}</span>
+    {% if e.today_st %}<span class="pc-today b-{{ e.today_st }}" title="Today">{{ e.today_st|replace('_',' ')|title }}</span>{% endif %}
+    <b class="pc-name">{{ e.name }}</b>
+    <small class="pc-role">{{ e.designation or 'No designation' }}</small>
+    <div class="pc-meta">
+      <span>🏢 {{ e.dept or 'No department' }}</span>
+      <span>🆔 {{ e.emp_code }}</span>
+      {% if e.phone %}<span>📞 {{ e.phone }}</span>{% endif %}
+    </div>
+    <div class="pc-foot">
+      <span>📅 {{ e.join_date|nicedate or '—' }}</span>
+      <span>💻 {{ e.assets_n }} asset{{ 's' if e.assets_n != 1 }}</span>
+      {% if e.status != 'active' %}<span class="badge b-inactive">Inactive</span>{% endif %}
+    </div>
+  </a>
+  {% else %}
+  <div class="card empty">No employees found.</div>
+  {% endfor %}
+</div>
+{% endblock %}

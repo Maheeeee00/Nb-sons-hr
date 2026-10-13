@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% from "_m.html" import badge, csrf, month_nav %}
+{% from "_pay_tabs.html" import pay_tabs with context %}
+{% block title %}Payroll{% endblock %}
+{% block heading %}Payroll · {{ month|monthname }}{% endblock %}
+{% block actions %}
+  {{ month_nav('payroll', month, prev, next) }}
+  {% if rows %}<a class="btn" href="{{ url_for('payroll', month=month, export='csv') }}">Export to Excel (CSV)</a>{% endif %}
+{% endblock %}
+{% block content %}
+{{ pay_tabs('salaries', month) }}
+{% if loan_out.c %}<div class="loanline"><span>🏦 <b>{{ loan_out.c }}</b> pending loan(s) · outstanding <b>{{ settings.currency }} {{ loan_out.s|money }}</b> — installments are deducted automatically when you generate / recalculate.</span><a class="btn sm" href="{{ url_for('loans') }}">View loans</a></div>{% endif %}
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h2>{{ 'Generate salaries' if not rows else 'Recalculate salaries' }}</h2>
+      <p class="muted" style="margin:4px 0 0;font-size:13px">Salary = Basic + Allowances + Overtime + Bonus − (per-day pay × absent/unpaid days) − Tax − Other deductions − Loan installment.
+        Recalculating updates attendance figures but keeps your overtime, bonus, tax and other deductions. Paid salaries are never changed.</p>
+    </div>
+    <div class="btns">
+      <form method="post" action="{{ url_for('payroll_generate') }}">{{ csrf() }}<input type="hidden" name="month" value="{{ month }}">
+        <button class="btn primary">{{ 'Generate payroll' if not rows else 'Recalculate' }}{% if missing and rows %} (+{{ missing }} new){% endif %}</button></form>
+      {% if rows %}<form method="post" action="{{ url_for('payroll_pay_all') }}" onsubmit="return confirm('Mark ALL salaries for this month as paid?')">{{ csrf() }}<input type="hidden" name="month" value="{{ month }}"><button class="btn ok">Mark all paid</button></form>{% endif %}
+    </div>
+  </div>
+</div>
+
+{% if rows %}
+<div class="stats">
+  <div class="stat"><div class="v">{{ rows|length }}</div><div class="l">Employees</div></div>
+  <div class="stat"><div class="v">{{ (tot.basic + tot.allowances + tot.overtime + tot.bonus)|money }}</div><div class="l">Gross ({{ settings.currency }})</div></div>
+  <div class="stat bad"><div class="v">{{ (tot.absent_deduction + tot.tax + tot.other_deductions + tot.loan_deduction)|money }}</div><div class="l">Deductions</div></div>
+  {% if tot.loan_deduction %}<a class="stat" href="{{ url_for('loans') }}"><div class="v">{{ tot.loan_deduction|money }}</div><div class="l">Loan installments</div></a>{% endif %}
+  <div class="stat ok"><div class="v">{{ tot.net|money }}</div><div class="l">Net payable</div></div>
+</div>
+<div class="card"><div class="table-wrap"><table>
+  <thead><tr><th>Employee</th><th class="num">Basic + Allow.</th><th class="num">OT + Bonus</th><th class="num">Absent / unpaid days</th>
+    <th class="num">Absent ded.</th><th class="num">Tax + Other</th><th class="num">Loan</th><th class="num">Net</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {% for p in rows %}
+    <tr>
+      <td><b>{{ p.name }}</b><br><small>{{ p.emp_code }} · {{ p.dept or '—' }}</small></td>
+      <td class="num">{{ (p.basic + p.allowances)|money }}</td>
+      <td class="num">{{ (p.overtime + p.bonus)|money }}</td>
+      <td class="num" title="Absent {{ p.absent_days|num }}, unpaid leave {{ p.unpaid_leave_days|num }}, late {{ p.late_days }}">{{ p.deduction_days|num }} <small>/ {{ p.working_days }}</small></td>
+      <td class="num">{{ p.absent_deduction|money }}</td>
+      <td class="num">{{ (p.tax + p.other_deductions)|money }}</td>
+      <td class="num">{% if p.loan_deduction %}<a href="{{ url_for('loans') }}">{{ p.loan_deduction|money }}</a>{% else %}—{% endif %}</td>
+      <td class="num"><b>{{ p.net|money }}</b></td>
+      <td>{{ badge(p.status) }}</td>
+      <td><div class="btns">
+        {% if p.status != 'paid' %}<a class="btn sm" href="{{ url_for('payroll_edit', pid=p.id) }}">Edit</a>{% endif %}
+        <a class="btn sm" href="{{ url_for('payslip', pid=p.id) }}">Payslip</a>
+        <form method="post" action="{{ url_for('payroll_status', pid=p.id) }}">{{ csrf() }}<button class="btn sm {{ '' if p.status == 'paid' else 'ok' }}">{{ 'Unmark' if p.status == 'paid' else 'Mark paid' }}</button></form>
+      </div></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+  <tfoot><tr><td>Total</td><td class="num">{{ (tot.basic + tot.allowances)|money }}</td><td class="num">{{ (tot.overtime + tot.bonus)|money }}</td><td></td>
+    <td class="num">{{ tot.absent_deduction|money }}</td><td class="num">{{ (tot.tax + tot.other_deductions)|money }}</td><td class="num">{{ tot.loan_deduction|money }}</td><td class="num">{{ tot.net|money }}</td><td colspan="2"></td></tr></tfoot>
+</table></div></div>
+{% else %}
+<div class="card empty">No salaries for {{ month|monthname }} yet. Mark attendance for the month, then click <b>Generate payroll</b>.</div>
+{% endif %}
+{% endblock %}

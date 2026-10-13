@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% from "_att_tabs.html" import att_tabs with context %}
+{% block title %}Attendance {{ d }}{% endblock %}
+{% block heading %}Daily attendance{% endblock %}
+{% block actions %}
+<form class="inline" method="get">
+  <a class="btn sm" href="{{ url_for('attendance', date=prev) }}">&larr;</a>
+  <input type="date" name="date" value="{{ d.isoformat() }}" onchange="this.form.submit()">
+  <a class="btn sm" href="{{ url_for('attendance', date=next) }}">&rarr;</a>
+  <a class="btn sm" href="{{ url_for('attendance') }}">Today</a>
+</form>
+{% endblock %}
+{% block content %}
+{{ att_tabs("daily") }}
+<div class="note"><b>{{ weekday }}, {{ d|nicedate }}</b>{% if not workday %} — this is a weekly off day.{% endif %}
+  · Employees who check in themselves appear automatically. Leave approved by HR is filled in as “Leave”.</div>
+<div class="stats">
+  <div class="stat ok"><div class="v">{{ counts.present or 0 }}</div><div class="l">Present</div></div>
+  <div class="stat warn"><div class="v">{{ counts.late or 0 }}</div><div class="l">Late</div></div>
+  <div class="stat warn"><div class="v">{{ counts.half_day or 0 }}</div><div class="l">Half day</div></div>
+  <div class="stat bad"><div class="v">{{ counts.absent or 0 }}</div><div class="l">Absent</div></div>
+  <div class="stat info"><div class="v">{{ counts.leave or 0 }}</div><div class="l">Leave</div></div>
+  <div class="stat"><div class="v">{{ emps|length - att|length }}</div><div class="l">Not marked</div></div>
+</div>
+<form method="post" class="card">
+  {{ csrf() }}<input type="hidden" name="date" value="{{ d.isoformat() }}">
+  <div class="card-head">
+    <h2>{{ emps|length }} active employee(s)</h2>
+    <div class="btns no-print">
+      <button type="button" class="btn sm" onclick="fill('present')">Mark all unmarked → Present</button>
+      <button type="button" class="btn sm" onclick="fill('absent')">Mark all unmarked → Absent</button>
+      <button class="btn primary">Save attendance</button>
+    </div>
+  </div>
+  <div class="table-wrap"><table class="daily">
+    <thead><tr><th>Employee</th><th>Department</th><th>Status</th><th>In</th><th>Out</th><th>Note</th></tr></thead>
+    <tbody>
+    {% for e in emps %}{% set a = att.get(e.id) %}
+      <tr>
+        <td><b>{{ e.name }}</b><br><small>{{ e.emp_code }}{% if e.designation %} · {{ e.designation }}{% endif %}</small></td>
+        <td>{{ e.dept or '—' }}</td>
+        <td><select name="status_{{ e.id }}" class="st">
+          <option value="">— not marked —</option>
+          {% for s in ATT_STATUSES %}<option value="{{ s }}" {{ 'selected' if a and a.status == s }}>{{ s|replace('_',' ')|title }}</option>{% endfor %}
+        </select></td>
+        <td><input type="time" name="in_{{ e.id }}" value="{{ a.check_in if a and a.check_in else '' }}"></td>
+        <td><input type="time" name="out_{{ e.id }}" value="{{ a.check_out if a and a.check_out else '' }}"></td>
+        <td><input class="note-in" name="note_{{ e.id }}" value="{{ a.note if a and a.note else '' }}"></td>
+      </tr>
+    {% else %}<tr><td colspan="6" class="empty">No active employees on this date. <a href="{{ url_for('employee_new') }}">Add employees</a> first.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  {% if emps %}<div style="margin-top:14px"><button class="btn primary">Save attendance</button></div>{% endif %}
+</form>
+<script>
+function fill(v){document.querySelectorAll('select.st').forEach(function(s){if(!s.value)s.value=v;});}
+</script>
+{% endblock %}

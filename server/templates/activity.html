@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Activity log{% endblock %}
+{% block heading %}Activity log & data security{% endblock %}
+{% block actions %}<a class="btn" href="{{ url_for('activity', export='csv', user=who, date=day, kind=kind) }}">📥 Export to Excel (CSV)</a>{% endblock %}
+{% block content %}
+<nav class="subnav">
+  <a href="{{ url_for('users') }}"><span>🔐</span> Users & Logins</a>
+  <a href="{{ url_for('roles_page') }}"><span>🛡️</span> Roles & Permissions</a>
+  <a href="{{ url_for('activity') }}" class="on"><span>🕵️</span> Activity Log</a>
+</nav>
+<div class="kpis">
+  <div class="kpi"><span class="ki bg-a">🗄️</span><div><div class="kv2" style="font-size:20px">SQLite</div><div class="kl">Database file hr.db · {{ (db_size / 1024)|round|int }} KB</div></div></div>
+  <div class="kpi"><span class="ki bg-f">💾</span><div><div class="kv2">{{ autos|length }}</div><div class="kl">Daily auto-backups kept{% if autos %} · last {{ autos[0][5:15] }}{% endif %}</div></div></div>
+  <div class="kpi"><span class="ki {{ 'bg-d' if fails24 else 'bg-b' }}">🔒</span><div><div class="kv2">{{ fails24 }}</div><div class="kl">Failed sign-ins (24 h)</div></div></div>
+  <div class="kpi"><span class="ki bg-c">⏱️</span><div><div class="kv2">{{ settings.idle_minutes or 30 }}<small style="font-size:14px"> min</small></div><div class="kl">Auto sign-out when idle</div></div></div>
+</div>
+<div class="card">
+  <div class="card-head"><h2>🛡️ How your data is protected</h2></div>
+  <ul class="tips" style="margin:0;columns:2;column-gap:28px">
+    <li>All data is in one <b>SQLite</b> file (<code>hr.db</code>) on the server PC – it is never sent to the internet.</li>
+    <li>Other PCs can only reach the data <b>through this website with a login</b>; the database file itself is not shared.</li>
+    <li>Passwords are stored <b>hashed</b> (scrambled) – nobody, not even the admin, can read them.</li>
+    <li>5 wrong passwords <b>lock the account for 15 minutes</b>.</li>
+    <li>Idle users are <b>signed out automatically</b> (change the time in Settings).</li>
+    <li>Each role sees only what it is allowed to (Roles & Permissions).</li>
+    <li>A full copy of the database is saved <b>every day</b> in the <code>backups</code> folder (last 30 days kept).</li>
+    <li>Deleted records are <b>wiped</b> from the file, and pages are not stored in the browser cache.</li>
+    <li>Every sign-in and every change is recorded below.</li>
+    <li>Run <b>SECURE-DATA.bat</b> once so other Windows users of the server PC can't open the data files.</li>
+  </ul>
+</div>
+<div class="card">
+  <form class="inline" method="get" style="margin-bottom:12px">
+    <div><label>User</label><select name="user"><option value="">Everyone</option>{% for u in users_ %}<option {{ 'selected' if who == u }}>{{ u }}</option>{% endfor %}</select></div>
+    <div><label>Date</label><input type="date" name="date" value="{{ day }}"></div>
+    <div><label>Show</label><select name="kind"><option value="">All activity</option><option value="security" {{ 'selected' if kind == 'security' }}>Sign-ins & security only</option></select></div>
+    <button class="btn">Filter</button>{% if who or day or kind %}<a class="btn" href="{{ url_for('activity') }}">Clear</a>{% endif %}
+  </form>
+  <div class="table-wrap"><table>
+    <thead><tr><th style="width:150px">Time</th><th>User</th><th>Computer</th><th>Action</th><th>Details</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr class="{{ 'warnrow' if r.action in ('Failed login', 'Account locked', 'Login blocked (locked)') }}">
+        <td><small>{{ r.at }}</small></td><td><b>{{ r.username or '—' }}</b></td><td><small>{{ r.ip }}</small></td>
+        <td>{{ r.action }}</td><td class="wrap"><small class="muted">{{ r.detail }}</small></td></tr>
+    {% else %}<tr><td colspan="5" class="empty">No activity recorded yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  <p class="muted" style="font-size:12px;margin:8px 0 0">Showing the latest {{ rows|length }} entries (max 1000). Use Export for the full list.</p>
+</div>
+{% endblock %}

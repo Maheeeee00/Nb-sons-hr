@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% from "_dept_tabs.html" import dept_tabs with context %}
+{% block title %}Manage departments{% endblock %}
+{% block heading %}Manage departments{% endblock %}
+{% block content %}
+{{ dept_tabs('manage') }}
+
+<div class="grid g2">
+  <form method="post" class="card">
+    {{ csrf() }}<input type="hidden" name="action" value="add">
+    <div class="card-head"><h2>➕ Quick add department</h2></div>
+    <div class="form-grid">
+      <div><label>Name *</label><input name="name" required placeholder="e.g. Marketing"></div>
+      <div><label>Code</label><input name="code" maxlength="8" placeholder="MKT"></div>
+      <div class="full"><label>Head of department</label><select name="head_id"><option value="">— Not set —</option>
+        {% for e in emps %}<option value="{{ e.id }}">{{ e.name }} ({{ e.emp_code }})</option>{% endfor %}</select></div>
+      <div class="full"><label>Description</label><input name="description" placeholder="Optional"></div>
+    </div>
+    <div style="margin-top:14px"><button class="btn primary">Add department</button></div>
+  </form>
+
+  <form method="post" class="card">
+    {{ csrf() }}<input type="hidden" name="action" value="move">
+    <div class="card-head"><h2>🔀 Move / merge staff</h2></div>
+    <p class="muted" style="margin-top:0">Move <b>all</b> employees from one department to another, for example when two departments are merged.</p>
+    <div class="form-grid">
+      <div><label>From</label><select name="src" required><option value="">Choose…</option>
+        {% for d in rows %}<option value="{{ d.id }}">{{ d.name }} ({{ d.total }})</option>{% endfor %}</select></div>
+      <div><label>To</label><select name="dst" required><option value="">Choose…</option>
+        {% for d in rows %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}<option value="none">— No department —</option></select></div>
+    </div>
+    <div style="margin-top:14px"><button class="btn" onclick="return confirm('Move all employees?')">Move employees</button></div>
+  </form>
+</div>
+
+<form method="post" class="card" id="bulk">
+  {{ csrf() }}<input type="hidden" name="action" value="save">
+  <div class="card-head">
+    <div><h2>✏️ Edit departments</h2><small>Change any field, then click Save. Changed rows turn yellow.</small></div>
+    <div class="btns"><span class="muted" id="chg"></span><button class="btn primary" id="save1" disabled>💾 Save changes</button></div>
+  </div>
+  <div class="table-wrap"><table class="editgrid">
+    <thead><tr><th>Name</th><th>Code</th><th>Head of department</th><th>Description</th><th class="num">Staff</th><th></th></tr></thead>
+    <tbody>
+    {% for d in rows %}{% set i = d.id %}
+      <tr data-id="{{ i }}" id="d{{ i }}">
+        <td><input name="name_{{ i }}" value="{{ d.name }}" required style="min-width:170px"><input type="checkbox" name="changed" value="{{ i }}" hidden></td>
+        <td><input name="code_{{ i }}" value="{{ d.code or '' }}" maxlength="8" style="width:90px"></td>
+        <td><select name="head_{{ i }}" style="min-width:200px"><option value="">— Not set —</option>
+          {% for e in emps %}<option value="{{ e.id }}" {{ 'selected' if d.head_id == e.id }}>{{ e.name }} ({{ e.emp_code }})</option>{% endfor %}</select></td>
+        <td><input name="desc_{{ i }}" value="{{ d.description or '' }}" style="min-width:220px"></td>
+        <td class="num"><a href="{{ url_for('employees', dept=i, status='all') }}"><b>{{ d.active }}</b>{% if d.total != d.active %} <small>/ {{ d.total }}</small>{% endif %}</a></td>
+        <td><button type="button" class="btn sm danger" data-id="{{ i }}" data-name="{{ d.name }}" data-n="{{ d.total }}" onclick="askDel(this.dataset.id, this.dataset.name, +this.dataset.n)">🗑 Delete</button></td>
+      </tr>
+    {% else %}<tr><td colspan="6" class="empty">No departments yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</form>
+
+<dialog id="deldlg" class="dlg">
+  <form method="post">
+    {{ csrf() }}<input type="hidden" name="action" value="delete"><input type="hidden" name="id" id="del_id">
+    <h2 style="margin-bottom:8px">Delete <span id="del_name"></span>?</h2>
+    <div id="del_move">
+      <p class="muted" style="margin-top:0">This department has <b id="del_n"></b> employee(s). Where should they go?</p>
+      <select name="move_to" id="del_to"><option value="">Choose…</option>
+        {% for d in rows %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}<option value="none">— No department —</option></select>
+    </div>
+    <p id="del_empty" class="muted">No employees are in this department.</p>
+    <div class="btns" style="margin-top:16px;justify-content:flex-end">
+      <button type="button" class="btn" onclick="document.getElementById('deldlg').close()">Cancel</button>
+      <button class="btn danger">Delete department</button>
+    </div>
+  </form>
+</dialog>
+<script>
+function askDel(id,name,n){document.getElementById('del_id').value=id;document.getElementById('del_name').textContent=name;
+  document.getElementById('del_n').textContent=n;document.getElementById('del_move').style.display=n?'':'none';
+  document.getElementById('del_empty').style.display=n?'none':'';
+  var s=document.getElementById('del_to');s.required=!!n;s.value='';[].forEach.call(s.options,function(o){o.hidden=o.value==String(id)});
+  document.getElementById('deldlg').showModal();}
+(function(){
+  var f=document.getElementById('bulk'),n=0;
+  function mark(tr){var cb=tr.querySelector('input[name=changed]');if(!cb.checked){cb.checked=true;tr.classList.add('dirty');n++;
+    document.getElementById('chg').textContent=n+' row(s) changed';document.getElementById('save1').disabled=false;}}
+  f.addEventListener('input',function(e){var tr=e.target.closest('tr[data-id]');if(tr)mark(tr)});
+  f.addEventListener('change',function(e){var tr=e.target.closest('tr[data-id]');if(tr)mark(tr)});
+  f.addEventListener('submit',function(){f.dataset.sub=1});
+  window.addEventListener('beforeunload',function(e){if(n&&!f.dataset.sub){e.preventDefault();e.returnValue=''}});
+  if(location.hash){var t=document.querySelector(location.hash);if(t){t.classList.add('dirty');setTimeout(function(){t.classList.remove('dirty')},1500)}}
+})();
+</script>
+{% endblock %}

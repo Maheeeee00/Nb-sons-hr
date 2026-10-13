@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% from "_m.html" import badge, csrf %}
+{% from "_hero.html" import hero with context %}
+{% block title %}My dashboard{% endblock %}
+{% block crumb %}Dashboard{% endblock %}
+{% block hero %}{% call hero() %}
+  <a class="hbtn prime" href="{{ url_for('my_leaves') }}">🌴 Apply for leave</a>
+  <a class="hbtn" href="{{ url_for('my_payslips') }}">🧾 My payslips</a>
+{% endcall %}{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="punch">
+    <div>
+      <div class="muted">{{ now.strftime('%A, %d %B %Y') }}</div>
+      <div class="clock" id="clock">{{ now.strftime('%H:%M') }}</div>
+      <div class="muted">Office hours {{ settings.office_start }} – {{ settings.office_end }}</div>
+    </div>
+    <div style="flex:1;min-width:220px">
+      {% if att and att.status == 'leave' %}
+        <p>You are on approved leave today. {{ badge('leave') }}</p>
+      {% elif not workday and not att %}
+        <p class="muted">Today is a weekly off day.</p>
+      {% endif %}
+      {% if att and att.check_in %}
+        <p style="margin:0 0 8px">Checked in at <b>{{ att.check_in }}</b> {{ badge(att.status) }}
+          {% if att.check_out %} · checked out at <b>{{ att.check_out }}</b>{% endif %}</p>
+      {% endif %}
+      <div class="btns">
+        {% if not att or (not att.check_in and att.status != 'leave') %}
+          <form method="post" action="{{ url_for('checkin') }}">{{ csrf() }}<button class="btn primary big">Check in</button></form>
+        {% elif att.check_in and not att.check_out %}
+          <form method="post" action="{{ url_for('checkout') }}">{{ csrf() }}<button class="btn big">Check out</button></form>
+        {% elif att.check_out %}
+          <form method="post" action="{{ url_for('checkout') }}">{{ csrf() }}<button class="btn sm">Update check-out time</button></form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat ok"><div class="v">{{ (counts.present or 0) + (counts.late or 0) }}</div><div class="l">Days present this month</div></div>
+  <div class="stat warn"><div class="v">{{ counts.late or 0 }}</div><div class="l">Late arrivals</div></div>
+  <div class="stat bad"><div class="v">{{ counts.absent or 0 }}</div><div class="l">Absent</div></div>
+  <div class="stat info"><div class="v">{{ counts.leave or 0 }}</div><div class="l">On leave</div></div>
+</div>
+
+<div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h2>Leave balance {{ today.year }}</h2><a class="btn sm primary" href="{{ url_for('my_leaves') }}">Apply for leave</a></div>
+    <div class="bal">
+      {% for b in balances %}
+        <div><small>{{ b.name }}</small>
+          {% if b.remaining is not none %}<b>{{ b.remaining|num }}</b><small>of {{ b.allowed }} left</small>
+          {% else %}<b>{{ b.used|num }}</b><small>days used{% if not b.paid %} · unpaid{% endif %}</small>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>My recent leave requests</h2><a href="{{ url_for('my_leaves') }}">All</a></div>
+    {% if leaves %}
+    <div class="table-wrap"><table><tbody>
+      {% for l in leaves %}<tr><td>{{ l.tname }}</td><td>{{ l.start_date|nicedate }}</td><td class="num">{{ l.days|num }} d</td><td>{{ badge(l.status) }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}<p class="muted" style="margin:0">No leave requests yet.</p>{% endif %}
+  </div>
+</div>
+<script>
+setInterval(function(){var d=new Date();document.getElementById('clock').textContent=('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)},10000);
+</script>
+{% endblock %}

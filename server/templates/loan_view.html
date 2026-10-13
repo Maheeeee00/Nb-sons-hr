@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% from "_pay_tabs.html" import pay_tabs with context %}
+{% block title %}Loan · {{ ln.name }}{% endblock %}
+{% block heading %}Loan · {{ ln.name }}{% endblock %}
+{% block actions %}<a class="btn" href="{{ url_for('loans') }}">&larr; All loans</a>{% endblock %}
+{% block content %}
+{{ pay_tabs('loans') }}
+{% set pct = ((ln.paid or 0) * 100 / ln.amount)|round|int if ln.amount else 0 %}
+<div class="kpis">
+  <div class="kpi"><span class="ki bg-a">🏦</span><div><div class="kv2" style="font-size:22px">{{ ln.amount|money }}</div><div class="kl">Loan amount · {{ ln.issued_on|nicedate }}</div></div></div>
+  <div class="kpi"><span class="ki bg-f">✅</span><div><div class="kv2" style="font-size:22px">{{ ln.paid|money }}</div><div class="kl">Repaid ({{ pct }}%)</div>
+    <div class="bar"><i style="width:{{ pct }}%;background:#22c55e"></i></div></div></div>
+  <div class="kpi"><span class="ki bg-d">⏳</span><div><div class="kv2" style="font-size:22px">{{ bal|money }}</div><div class="kl">Balance{% if months_left %} · {{ months_left }} month(s) left{% endif %}</div></div></div>
+  <div class="kpi"><span class="ki bg-c">📅</span><div><div class="kv2" style="font-size:22px">{{ ln.installment|money }}</div><div class="kl">Per month · <span class="badge ls-{{ state }}">{{ {'active':'Pending','paused':'Paused','completed':'Repaid','closed':'Closed'}[state] }}</span></div></div></div>
+</div>
+
+<div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h2>📄 Loan details</h2><a href="{{ url_for('employee_view', eid=ln.employee_id) }}">Employee profile →</a></div>
+    <dl class="kv">
+      <dt>Employee</dt><dd><b>{{ ln.name }}</b> <small class="muted">{{ ln.emp_code }}{% if ln.designation %} · {{ ln.designation }}{% endif %}</small></dd>
+      <dt>Department</dt><dd>{{ ln.dept or '—' }}</dd>
+      <dt>Reason</dt><dd>{{ ln.reason or '—' }}</dd>
+      <dt>Deduct from</dt><dd>{{ ln.start_month|monthname if ln.start_month else '—' }}</dd>
+      <dt>Given by</dt><dd>{{ ln.created_by or '—' }}</dd>
+      {% if ln.closed_on %}<dt>Closed on</dt><dd>{{ ln.closed_on|nicedate }} – {{ ln.notes }}</dd>{% endif %}
+    </dl>
+    {% if can('payroll.manage') %}
+    <details class="fold" style="margin-top:12px"><summary><b>✏️ Edit loan</b></summary>
+      <form method="post" style="margin-top:10px">{{ csrf() }}<input type="hidden" name="action" value="edit">
+        <div class="form-grid">
+          <div><label>Amount</label><input type="number" step="any" name="amount" value="{{ ln.amount|num }}"></div>
+          <div><label>Monthly installment</label><input type="number" step="any" name="installment" value="{{ ln.installment|num }}"></div>
+          <div><label>Date given</label><input type="date" name="issued_on" value="{{ ln.issued_on or '' }}"></div>
+          <div><label>Deduct from (month)</label><input type="month" name="start_month" value="{{ ln.start_month or '' }}"></div>
+          <div class="full"><label>Reason</label><input name="reason" value="{{ ln.reason or '' }}"></div>
+        </div>
+        <button class="btn primary" style="margin-top:10px">Save</button>
+      </form>
+    </details>
+    <div class="btns" style="margin-top:14px">
+      {% if state == 'active' %}
+        <form method="post">{{ csrf() }}<input type="hidden" name="action" value="pause"><button class="btn sm">⏸️ Pause deductions</button></form>
+      {% elif state == 'paused' %}
+        <form method="post">{{ csrf() }}<input type="hidden" name="action" value="resume"><button class="btn sm ok">▶️ Resume deductions</button></form>
+      {% endif %}
+      {% if state in ('active', 'paused') %}
+        <form method="post" onsubmit="return confirm('Close this loan? The remaining balance will NOT be deducted any more.')">{{ csrf() }}<input type="hidden" name="action" value="close"><input type="hidden" name="notes" value="Closed / waived"><button class="btn sm danger">Close / waive balance</button></form>
+      {% elif state == 'closed' %}
+        <form method="post">{{ csrf() }}<input type="hidden" name="action" value="reopen"><button class="btn sm">Reopen</button></form>
+      {% endif %}
+      {% if not ln.n_pay %}
+        <form method="post" onsubmit="return confirm('Delete this loan?')">{{ csrf() }}<input type="hidden" name="action" value="delete"><button class="btn sm danger">Delete</button></form>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>💵 Repayments</h2></div>
+    {% if can('payroll.manage') and state in ('active', 'paused') %}
+    <form method="post" class="inline" style="margin-bottom:12px">{{ csrf() }}<input type="hidden" name="action" value="pay">
+      <div><label>Cash received</label><input type="number" step="any" min="1" name="amount" max="{{ bal }}" placeholder="{{ bal|money }}" style="min-width:120px" required></div>
+      <div><label>Date</label><input type="date" name="paid_on" value="{{ today.isoformat() }}"></div>
+      <div><label>Note</label><input name="note" placeholder="optional"></div>
+      <button class="btn">Record</button>
+    </form>
+    {% endif %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Month</th><th>How</th><th class="num">Amount</th><th></th></tr></thead>
+      <tbody>
+      {% for p in pays %}
+        <tr><td>{{ p.paid_on|nicedate }}</td><td>{{ p.month|monthname if p.month else '—' }}</td>
+          <td>{% if p.payroll_id %}💰 Salary deduction{% if p.pay_status %} <small class="muted">({{ p.pay_status }})</small>{% endif %}{% else %}💵 {{ p.note or 'Cash' }}{% endif %}</td>
+          <td class="num"><b>{{ p.amount|money }}</b></td>
+          <td>{% if can('payroll.manage') and not p.payroll_id %}<form method="post" onsubmit="return confirm('Remove this repayment?')">{{ csrf() }}<input type="hidden" name="action" value="unpay"><input type="hidden" name="pay_id" value="{{ p.id }}"><button class="btn sm">✕</button></form>{% endif %}</td></tr>
+      {% else %}<tr><td colspan="5" class="empty">No repayments yet. The installment is deducted when payroll is generated{% if ln.start_month %} (from {{ ln.start_month|monthname }}){% endif %}.</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+    {% if others %}
+    <div class="sub-h">Other loans of {{ ln.name }}</div>
+    <ul class="plist">{% for o in others %}<li><div class="grow"><a href="{{ url_for('loan_view', lid=o.id) }}"><b>{{ o.amount|money }}</b></a><small>{{ o.issued_on|nicedate }}{% if o.reason %} · {{ o.reason }}{% endif %}</small></div>
+      <small>balance {{ [o.amount - o.paid, 0]|max|money }}</small></li>{% endfor %}</ul>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

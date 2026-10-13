@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% from "_asset_tabs.html" import asset_tabs with context %}
+{% block title %}{{ 'Add asset' if new else 'Edit asset' }}{% endblock %}
+{% block heading %}{{ 'Add asset' if new else 'Edit ' ~ a.asset_code }}{% endblock %}
+{% block content %}
+{{ asset_tabs('add' if new else '') }}
+<form method="post" class="card">
+  {{ csrf() }}
+  <fieldset><legend>Asset details</legend>
+    <div class="form-grid">
+      <div><label>Asset code</label><input name="asset_code" value="{{ code }}"></div>
+      <div><label>Asset name *</label><input name="name" value="{{ a.name or '' }}" required placeholder="e.g. Dell Latitude 5420"></div>
+      <div><label>Category</label><input name="category" list="cats" value="{{ a.category or '' }}" placeholder="Choose or type">
+        <datalist id="cats">{% for c in cats %}<option value="{{ c }}">{% endfor %}</datalist></div>
+      <div><label>Brand</label><input name="brand" value="{{ a.brand or '' }}"></div>
+      <div><label>Model</label><input name="model" value="{{ a.model or '' }}"></div>
+      <div><label>Serial / IMEI no.</label><input name="serial_no" value="{{ a.serial_no or '' }}"></div>
+      <div><label>Purchase date</label><input type="date" name="purchase_date" value="{{ a.purchase_date or '' }}"></div>
+      <div><label>Cost ({{ settings.currency }})</label><input type="number" step="any" min="0" name="cost" value="{{ (a.cost or 0)|num }}"></div>
+      <div><label>Condition</label><select name="condition">{% for c in conds %}<option {{ 'selected' if a.condition == c }}>{{ c }}</option>{% endfor %}</select></div>
+      {% if not new %}<div><label>Status</label>
+        {% if a.status == 'assigned' %}<input value="Assigned to {{ a.emp_name }}" disabled><small class="muted">Use Return to change</small>
+        {% else %}<select name="status">{% for s in statuses if s != 'assigned' %}<option value="{{ s }}" {{ 'selected' if a.status == s }}>{{ s|title }}</option>{% endfor %}</select>{% endif %}</div>{% endif %}
+      <div><label>Location</label><input name="location" value="{{ a.location or '' }}" placeholder="e.g. Head office, Store room"></div>
+      <div class="full"><label>Notes</label><textarea name="notes">{{ a.notes or '' }}</textarea></div>
+    </div>
+  </fieldset>
+  {% if new %}
+  <fieldset><legend>Assign right away (optional)</legend>
+    <div class="form-grid">
+      <div><label>Give to employee</label><select name="assign_to"><option value="">— Keep in store (available) —</option>
+        {% for e in emps %}<option value="{{ e.id }}">{{ e.name }} ({{ e.emp_code }})</option>{% endfor %}</select></div>
+      <div><label>Expected return (optional)</label><input type="date" name="expected_return"></div>
+    </div>
+  </fieldset>
+  {% endif %}
+  <div class="btns">
+    <button class="btn primary">💾 {{ 'Save asset' if new else 'Save changes' }}</button>
+    {% if new %}<button class="btn" name="again" value="1">Save & add another</button>{% endif %}
+    <a class="btn" href="{{ url_for('assets') if new else url_for('asset_view', aid=a.id) }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

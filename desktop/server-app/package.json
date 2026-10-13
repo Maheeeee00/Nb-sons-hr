@@ -1,0 +1,7 @@
+{
+  "name": "nbsons-hr-server",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": { "tauri": "tauri" },
+  "devDependencies": { "@tauri-apps/cli": "^2" }
+}

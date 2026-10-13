@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b1522">
+<title>{% block title %}HR{% endblock %} · {{ settings.company_name }}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+{% macro nav(endpoint, icon, label, extra='') -%}
+  <a href="{{ url_for(endpoint) }}" class="{{ 'active' if request.endpoint == endpoint }}"><span class="ic">{{ icon }}</span><span class="tx">{{ label }}</span>{{ extra|safe }}</a>
+{%- endmacro %}
+{% set initials = ((user.emp_name or user.username).split()|map('first')|join)[:2]|upper %}
+
+<header class="appbar">
+  <button class="ibtn menubtn" type="button" aria-label="Open menu" onclick="document.body.classList.toggle('nav-open')">&#8942;</button>
+  <a class="brand2" href="{{ url_for('dashboard') }}" style="color:#fff;text-decoration:none">
+    <span class="logo">HR</span>
+    <span><b>HR System</b><small>Management System</small></span>
+  </a>
+  {% if is_hr %}
+  <form class="search" id="gsearch" action="{{ url_for('search_page') }}" method="get" autocomplete="off">
+    <span class="sic">🔍</span>
+    <input name="q" id="gq" placeholder="Search employees, assets, attendance, leaves…" value="{{ request.args.q if request.endpoint == 'search_page' else '' }}">
+    <button>Search</button>
+    <div class="sdrop" id="sdrop"></div>
+  </form>
+  {% endif %}
+  <div class="tools">
+    {% if is_hr %}<a class="ibtn showm" href="{{ url_for('search_page') }}" title="Search">🔍</a>{% endif %}
+    {% if can('employees.manage') %}<a class="ibtn hide-m" href="{{ url_for('employee_new') }}" title="Add employee">&#10133;</a>{% endif %}
+    {% if can('attendance.manage') %}<a class="ibtn hide-m" href="{{ url_for('attendance') }}" title="Today's attendance">&#128197;</a>{% endif %}
+    {% if can('leaves.view', 'leaves.approve') %}<a class="ibtn" href="{{ url_for('leaves') }}" title="Leaves">&#128276;{% if pending_leaves %}<span class="dot">{{ pending_leaves }}</span>{% endif %}</a>{% endif %}
+    <a class="userchip" href="{{ url_for('change_password') }}" title="Change password">
+      <span class="av">{{ initials }}</span>
+      <span class="uname"><b>{{ user.emp_name or user.username }}</b><small>{{ user.role_name }}</small></span>
+    </a>
+    <form method="post" action="{{ url_for('logout') }}" class="hide-m" style="margin:0">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <button class="logoutbtn">&#9211; Logout</button>
+    </form>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="org">
+      <span class="ologo">{{ (settings.company_name.split()|map('first')|join)[:2]|upper }}</span>
+      <div><b>{{ settings.company_name }}</b><small>HR & Payroll</small></div>
+    </div>
+    <div class="navsearch"><input type="search" placeholder="Search modules…" oninput="filterNav(this.value)"></div>
+    <nav id="nav">
+      {{ nav('dashboard', '🏠', 'Dashboard') }}
+      {% if can('employees.view', 'departments.view') %}<div class="nav-label">People</div>{% endif %}
+      {% if can('employees.view') %}
+        {% set emp_eps = ['employees', 'employee_new', 'employee_import', 'employee_view', 'employee_edit', 'employee_bulk_edit', 'employee_profiles'] %}
+        <details class="navgroup" {{ 'open' if request.endpoint in emp_eps }}>
+          <summary class="{{ 'active' if request.endpoint in emp_eps }}"><span class="ic">👥</span><span class="tx">Employees</span><span class="pill2">{{ emp_total }}</span><span class="chev">›</span></summary>
+          <div class="sub">
+            {{ nav('employees', '•', 'All Employees') }}
+            {{ nav('employee_profiles', '•', 'Employee Profiles') }}
+            {% if can('employees.manage') %}
+            {{ nav('employee_new', '•', 'Add Employee') }}
+            {{ nav('employee_bulk_edit', '•', 'Edit Employees') }}
+            {{ nav('employee_import', '•', 'Import Employees') }}
+            {% endif %}
+          </div>
+        </details>
+      {% endif %}
+      {% if can('departments.view') %}
+        {% set dept_eps = ['departments', 'department_new', 'departments_manage'] %}
+        <details class="navgroup" {{ 'open' if request.endpoint in dept_eps }}>
+          <summary class="{{ 'active' if request.endpoint in dept_eps }}"><span class="ic">🏢</span><span class="tx">Departments</span><span class="chev">›</span></summary>
+          <div class="sub">
+            {{ nav('departments', '•', 'All Departments') }}
+            {% if can('departments.manage') %}
+            {{ nav('department_new', '•', 'Add Department') }}
+            {{ nav('departments_manage', '•', 'Manage Departments') }}
+            {% endif %}
+          </div>
+        </details>
+      {% endif %}
+      {% if can('attendance.view', 'attendance.manage', 'leaves.view', 'leaves.approve') %}<div class="nav-label">Time & Attendance</div>{% endif %}
+      {% if can('attendance.view', 'attendance.manage') %}
+        {% set att_eps = ['attendance', 'attendance_report', 'attendance_manage', 'attendance_import'] %}
+        <details class="navgroup" {{ 'open' if request.endpoint in att_eps }}>
+          <summary class="{{ 'active' if request.endpoint in att_eps }}"><span class="ic">✅</span><span class="tx">Attendance</span><span class="chev">›</span></summary>
+          <div class="sub">
+            {% if can('attendance.manage') %}
+            {{ nav('attendance', '•', 'Daily Attendance') }}
+            {{ nav('attendance_manage', '•', 'Manage Attendance') }}
+            {{ nav('attendance_import', '•', 'Import Attendance') }}
+            {% endif %}
+            {{ nav('attendance_report', '•', 'Monthly Report') }}
+          </div>
+        </details>
+      {% endif %}
+      {% if can('leaves.view', 'leaves.approve') %}
+        {{ nav('leaves', '🌴', 'Leaves', ('<span class="pill">%d</span>' % pending_leaves) if pending_leaves else '') }}
+      {% endif %}
+      {% if can('payroll.view', 'assets.view') %}<div class="nav-label">Salary & Assets</div>{% endif %}
+      {% if can('payroll.view') %}
+        {% set pay_eps = ['payroll', 'payroll_edit', 'loans', 'loan_view'] %}
+        <details class="navgroup" {{ 'open' if request.endpoint in pay_eps }}>
+          <summary class="{{ 'active' if request.endpoint in pay_eps }}"><span class="ic">💰</span><span class="tx">Payroll</span>{% if loans_pending %}<span class="pill" title="Pending loans">{{ loans_pending }}</span>{% endif %}<span class="chev">›</span></summary>
+          <div class="sub">
+            {{ nav('payroll', '•', 'Salaries') }}
+            {{ nav('loans', '•', 'Loans', ('<span class="pill">%d</span>' % loans_pending) if loans_pending else '') }}
+          </div>
+        </details>
+      {% endif %}
+      {% if can('assets.view') %}
+        {% set ast_eps = ['assets', 'asset_new', 'asset_view', 'asset_edit', 'assets_assign', 'assets_history'] %}
+        <details class="navgroup" {{ 'open' if request.endpoint in ast_eps }}>
+          <summary class="{{ 'active' if request.endpoint in ast_eps }}"><span class="ic">💻</span><span class="tx">Assets</span><span class="chev">›</span></summary>
+          <div class="sub">
+            {{ nav('assets', '•', 'All Assets') }}
+            {% if can('assets.manage') %}
+            {{ nav('asset_new', '•', 'Add Asset') }}
+            {{ nav('assets_assign', '•', 'Assign / Return') }}
+            {% endif %}
+            {{ nav('assets_history', '•', 'Assignment History') }}
+          </div>
+        </details>
+      {% endif %}
+      {% if can('settings', 'users', 'backup') %}
+        <div class="nav-label">System</div>
+        {% if can('settings') %}{{ nav('settings_page', '⚙️', 'Settings') }}{% endif %}
+        {% if can('users') %}
+        {{ nav('users', '🔐', 'Users & Logins') }}
+        {{ nav('roles_page', '🛡️', 'Roles & Permissions') }}
+        {{ nav('activity', '🕵️', 'Activity Log') }}
+        {% endif %}
+        {% if can('backup') %}<a href="{{ url_for('backup') }}"><span class="ic">💾</span><span class="tx">Download Backup</span></a>{% endif %}
+      {% endif %}
+      <div class="nav-label">Account</div>
+      {{ nav('change_password', '🔑', 'Change Password') }}
+      <form method="post" action="{{ url_for('logout') }}" style="margin:0">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <a href="#" onclick="this.closest('form').submit();return false"><span class="ic">🚪</span><span class="tx">Logout</span></a>
+      </form>
+    </nav>
+    <div class="side-foot">Signed in as <b style="color:#fff">{{ user.username }}</b></div>
+  </aside>
+  <div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+
+  <main class="main">
+    <div class="crumb">
+      <div class="path">{% block crumb %}<a href="{{ url_for('dashboard') }}">Home</a> <span>/</span> {{ self.heading()|striptags|trim }}{% endblock %}</div>
+      <span class="chip">🏢 {{ settings.company_name }}</span>
+    </div>
+    {% if false %}{% block hero %}{% endblock %}{% endif %}
+    {% set _hero = self.hero() %}
+    {% if _hero|trim %}
+      {% for cat, msg in get_flashed_messages(with_categories=true) %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
+      {{ _hero }}
+    {% endif %}
+    {% if self.heading()|trim or self.actions()|trim %}
+    <header class="topbar">
+      <h1>{% block heading %}{% endblock %}</h1>
+      <div class="actions">{% block actions %}{% endblock %}</div>
+    </header>
+    {% endif %}
+    {% if not _hero|trim %}
+    {% for cat, msg in get_flashed_messages(with_categories=true) %}
+      <div class="flash {{ cat }}">{{ msg }}</div>
+    {% endfor %}
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+<script>
+function filterNav(q){q=q.toLowerCase();document.querySelectorAll('#nav a').forEach(function(a){a.style.display=a.textContent.toLowerCase().indexOf(q)>-1?'':'none'});
+ document.querySelectorAll('#nav .nav-label').forEach(function(l){l.style.display=q?'none':''});}
+document.addEventListener('keydown',function(e){if(e.key==='Escape')document.body.classList.remove('nav-open')});
+(function(){
+  var f=document.getElementById('gsearch');if(!f)return;
+  var inp=document.getElementById('gq'),box=document.getElementById('sdrop'),t=null,sel=-1,last='';
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+  function hide(){box.classList.remove('on');sel=-1}
+  function links(){return box.querySelectorAll('a.si')}
+  function render(d){
+    if(!d.groups.length){box.innerHTML='<div class="sempty">No results for “'+esc(d.q)+'”</div>';box.classList.add('on');return}
+    var h='';d.groups.forEach(function(g){
+      h+='<div class="sg"><div class="sgh">'+g.icon+' '+esc(g.group)+(g.more?'<a href="'+g.more+'">see all</a>':'')+'</div>';
+      g.items.forEach(function(it){h+='<a class="si" href="'+it.url+'"><span class="st">'+esc(it.title)+(it.badge?' <span class="badge b-'+esc(it.badge)+'">'+esc(it.badge.replace('_',' '))+'</span>':'')+'</span><span class="ss">'+esc(it.sub)+'</span></a>'});
+      h+='</div>'});
+    h+='<a class="sall" href="/search?q='+encodeURIComponent(d.q)+'">See all results for “'+esc(d.q)+'” ↵</a>';
+    box.innerHTML=h;box.classList.add('on');sel=-1}
+  inp.addEventListener('input',function(){clearTimeout(t);var v=inp.value.trim();if(!v){hide();return}
+    t=setTimeout(function(){last=v;fetch('/api/search?q='+encodeURIComponent(v)).then(function(r){return r.json()}).then(function(d){if(d.q.trim()===inp.value.trim())render(d)})},180)});
+  inp.addEventListener('keydown',function(e){var l=links();if(!box.classList.contains('on')||!l.length)return;
+    if(e.key==='ArrowDown'){e.preventDefault();sel=Math.min(sel+1,l.length-1)}else if(e.key==='ArrowUp'){e.preventDefault();sel=Math.max(sel-1,0)}
+    else if(e.key==='Enter'&&sel>=0){e.preventDefault();location.href=l[sel].href;return}else if(e.key==='Escape'){hide();return}else return;
+    l.forEach(function(a,i){a.classList.toggle('hl',i===sel)});l[sel].scrollIntoView({block:'nearest'})});
+  inp.addEventListener('focus',function(){if(inp.value.trim()&&box.innerHTML)box.classList.add('on')});
+  document.addEventListener('click',function(e){if(!f.contains(e.target))hide()});
+  document.addEventListener('keydown',function(e){if(e.key==='/'&&document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='TEXTAREA'){e.preventDefault();inp.focus()}});
+})();
+</script>
+</body>
+</html>

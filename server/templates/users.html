@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% from "_m.html" import badge, csrf %}
+{% block title %}Users{% endblock %}
+{% block heading %}Users & logins{% endblock %}
+{% block content %}
+<nav class="subnav">
+  <a href="{{ url_for('users') }}" class="on"><span>🔐</span> Users & Logins</a>
+  <a href="{{ url_for('roles_page') }}"><span>🛡️</span> Roles & Permissions</a>
+</nav>
+<div class="card">
+  <div class="card-head"><h2>➕ Add a user</h2></div>
+  <form method="post" class="inline">
+    {{ csrf() }}<input type="hidden" name="action" value="create">
+    <div><label>Username</label><input name="username" required></div>
+    <div><label>Temporary password</label><input name="password" minlength="6" required></div>
+    <div><label>Role</label><select name="role">
+      {% for r in roles if r.key != 'employee' %}<option value="{{ r.key }}" {{ 'selected' if r.key == 'hr' }}>{{ r.name }}</option>{% endfor %}</select></div>
+    <button class="btn primary">Create user</button>
+  </form>
+  <p class="muted" style="font-size:12.5px;margin-bottom:0">Only HR staff and managers sign in to this system – employees don't need logins (attendance comes from the biometric machine).
+    Use <b>Manager (view only)</b> for managers who should only look at employees, attendance and leaves. Define what each role can do on <a href="{{ url_for('roles_page') }}">Roles & Permissions</a>.</p>
+</div>
+<div class="card"><div class="table-wrap"><table>
+  <thead><tr><th>Username</th><th>Role</th><th>Employee</th><th>Status</th><th>Last login</th><th>Reset password</th><th></th></tr></thead>
+  <tbody>
+  {% for u in rows %}
+    <tr>
+      <td><b>{{ u.username }}</b>{% if u.id == user.id %} <small>(you)</small>{% endif %}</td>
+      <td>{% if u.id == user.id %}{{ badge(u.role) }}
+        {% else %}<form method="post" class="inline">{{ csrf() }}<input type="hidden" name="action" value="role"><input type="hidden" name="id" value="{{ u.id }}">
+          <select name="role" onchange="this.form.submit()" style="min-width:150px">{% for r in roles %}<option value="{{ r.key }}" {{ 'selected' if u.role == r.key }}>{{ r.name }}</option>{% endfor %}
+          {% if u.role not in roles|map(attribute='key')|list %}<option selected>{{ u.role }} (deleted)</option>{% endif %}</select></form>{% endif %}</td>
+      <td>{% if u.employee_id %}<a href="{{ url_for('employee_view', eid=u.employee_id) }}">{{ u.emp_name }}</a>{% else %}—{% endif %}</td>
+      <td>{{ badge('active' if u.active else 'inactive') }}
+        {% if u.locked_until and u.locked_until > now.strftime('%Y-%m-%d %H:%M:%S') %}<br><span class="badge b-absent">🔒 Locked</span>
+          <form method="post" style="display:inline">{{ csrf() }}<input type="hidden" name="action" value="unlock"><input type="hidden" name="id" value="{{ u.id }}"><button class="btn sm">Unlock</button></form>{% endif %}</td>
+      <td>{{ u.last_login or 'Never' }}</td>
+      <td><form method="post" class="inline">{{ csrf() }}<input type="hidden" name="action" value="reset"><input type="hidden" name="id" value="{{ u.id }}">
+        <input name="password" minlength="6" required placeholder="New password" style="min-width:130px"><button class="btn sm">Reset</button></form></td>
+      <td>{% if u.id != user.id %}<div class="btns">
+        <form method="post">{{ csrf() }}<input type="hidden" name="action" value="toggle"><input type="hidden" name="id" value="{{ u.id }}"><button class="btn sm">{{ 'Disable' if u.active else 'Enable' }}</button></form>
+        <form method="post" onsubmit="return confirm('Delete user {{ u.username }}?')">{{ csrf() }}<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{ u.id }}"><button class="btn sm danger">Delete</button></form>
+      </div>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div></div>
+{% endblock %}

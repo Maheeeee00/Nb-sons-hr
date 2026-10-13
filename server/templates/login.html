@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · {{ settings.company_name }} HR</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login">
+    <div class="logo">HR</div>
+    <h1>{{ settings.company_name }}</h1>
+    <p class="muted" style="margin:0 0 6px">Sign in to the HR system</p>
+    {% for cat, msg in get_flashed_messages(with_categories=true) %}
+      <div class="flash {{ cat }}" style="margin-top:12px">{{ msg }}</div>
+    {% endfor %}
+    <form method="post">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <div><label for="u">Username</label><input id="u" name="username" autofocus required autocomplete="username"></div>
+      <div><label for="p">Password</label><input id="p" type="password" name="password" required autocomplete="current-password"></div>
+      <div><button class="btn primary big" style="width:100%;justify-content:center">Sign in</button></div>
+    </form>
+    <p class="muted" style="font-size:12px;margin:16px 0 0">Forgot your password? Ask HR to reset it.</p>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "_m.html" import badge, month_nav %}
+{% block title %}My attendance{% endblock %}
+{% block heading %}My attendance · {{ month|monthname }}{% endblock %}
+{% block actions %}{{ month_nav('my_attendance', month, prev, next) }}{% endblock %}
+{% block content %}
+<div class="stats">
+  <div class="stat ok"><div class="v">{{ c.present + c.late }}</div><div class="l">Present</div></div>
+  <div class="stat warn"><div class="v">{{ c.late }}</div><div class="l">Late</div></div>
+  <div class="stat warn"><div class="v">{{ c.half_day }}</div><div class="l">Half day</div></div>
+  <div class="stat bad"><div class="v">{{ c.absent }}</div><div class="l">Absent</div></div>
+  <div class="stat info"><div class="v">{{ c.leave }}</div><div class="l">Leave</div></div>
+</div>
+<div class="card"><div class="table-wrap"><table>
+  <thead><tr><th>Date</th><th>Day</th><th>Status</th><th>In</th><th>Out</th><th>Note</th></tr></thead>
+  <tbody>
+  {% for d, r, work in days %}
+    <tr class="{{ '' if work else 'off' }}"><td>{{ d|nicedate }}</td><td>{{ d.strftime('%A') }}</td>
+      <td>{% if r %}{{ badge(r.status) }}{% elif not work %}<small>Weekly off</small>{% else %}<small>Not marked</small>{% endif %}</td>
+      <td>{{ r.check_in if r and r.check_in else '' }}</td><td>{{ r.check_out if r and r.check_out else '' }}</td><td class="wrap">{{ r.note if r and r.note else '' }}</td></tr>
+  {% else %}<tr><td colspan="6" class="empty">No days to show for this month.</td></tr>{% endfor %}
+  </tbody>
+</table></div></div>
+{% endblock %}

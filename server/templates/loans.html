@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% from "_pay_tabs.html" import pay_tabs with context %}
+{% block title %}Loans{% endblock %}
+{% block heading %}Loans & advances{% endblock %}
+{% block actions %}
+  <a class="btn" href="{{ url_for('loans', export='csv', view=view) }}">📥 Export to Excel (CSV)</a>
+  {% if can('payroll.manage') %}<a class="btn primary" href="#new-loan" onclick="document.getElementById('newloan').open=true">+ Give a loan</a>{% endif %}
+{% endblock %}
+{% block content %}
+{{ pay_tabs('loans') }}
+<div class="kpis">
+  <div class="kpi"><span class="ki bg-d">🏦</span><div><div class="kv2" style="font-size:22px">{{ kp.outstanding|money }}</div><div class="kl">Outstanding balance ({{ settings.currency }})</div></div></div>
+  <div class="kpi"><span class="ki bg-c">⏳</span><div><div class="kv2">{{ kp.pending }}</div><div class="kl">Pending loans</div></div></div>
+  <div class="kpi"><span class="ki bg-b">📅</span><div><div class="kv2" style="font-size:22px">{{ kp.next|money }}</div><div class="kl">To deduct · {{ month|monthname }}</div></div></div>
+  <div class="kpi"><span class="ki bg-f">✅</span><div><div class="kv2" style="font-size:22px">{{ kp.recovered_month|money }}</div><div class="kl">Recovered this month</div></div></div>
+</div>
+
+{% if can('payroll.manage') %}
+<details class="card fold" id="newloan" {{ 'open' if pre or not counts }}>
+  <summary id="new-loan"><h2 style="display:inline">➕ Give a new loan / advance</h2></summary>
+  <form method="post" style="margin-top:12px">{{ csrf() }}
+    <div class="form-grid">
+      <div><label>Employee *</label><select name="employee_id" required><option value="">— choose —</option>
+        {% for e in emps %}<option value="{{ e.id }}" {{ 'selected' if pre == e.id|string }}>{{ e.name }} ({{ e.emp_code }})</option>{% endfor %}</select></div>
+      <div><label>Loan amount ({{ settings.currency }}) *</label><input type="number" min="1" step="any" name="amount" id="la" required></div>
+      <div><label>Monthly installment ({{ settings.currency }}) *</label><input type="number" min="1" step="any" name="installment" id="li" required></div>
+      <div><label>Date given</label><input type="date" name="issued_on" value="{{ today.isoformat() }}"></div>
+      <div><label>Start deducting from (month)</label><input type="month" name="start_month" value="{{ month }}"></div>
+      <div><label>Reason</label><input name="reason" placeholder="e.g. Medical, wedding, advance salary"></div>
+    </div>
+    <p class="muted" id="lplan" style="margin:10px 0">The installment is cut automatically when payroll is generated, until the loan is fully repaid.</p>
+    <button class="btn primary">Save loan</button>
+  </form>
+</details>
+<script>
+(function(){var a=document.getElementById('la'),i=document.getElementById('li'),p=document.getElementById('lplan');
+function u(){var A=parseFloat(a.value)||0,I=parseFloat(i.value)||0;if(A>0&&I>0){var n=Math.ceil(A/I);p.innerHTML='📆 Repaid in <b>'+n+' month'+(n>1?'s':'')+'</b> ('+Math.round(Math.min(I,A)).toLocaleString('en-US')+' per month).'}}
+a.addEventListener('input',u);i.addEventListener('input',u)})();
+function openNew(){if(location.hash=='#new-loan'){var d=document.getElementById('newloan');d.open=true;d.scrollIntoView({behavior:'smooth'});}}
+openNew();window.addEventListener('hashchange',openNew);
+</script>
+{% endif %}
+
+<div class="card">
+  <div class="tabs">
+    {% for v, l, n in [('pending','Pending', (counts.active or 0) + (counts.paused or 0)),('completed','Fully repaid', counts.completed or 0),('closed','Closed / waived', counts.closed or 0),('all','All', None)] %}
+      <a href="{{ url_for('loans', view=v) }}" class="{{ 'on' if view == v }}">{{ l }}{% if n %} ({{ n }}){% endif %}</a>
+    {% endfor %}
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Employee</th><th>Given on</th><th class="num">Amount</th><th class="num">Installment</th><th class="num">Repaid</th><th class="num">Balance</th><th style="min-width:140px">Progress</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rows %}{% set pct = ((r.paid or 0) * 100 / r.amount)|round|int if r.amount else 0 %}
+      <tr>
+        <td><a href="{{ url_for('employee_view', eid=r.employee_id) }}"><b>{{ r.name }}</b></a><br><small>{{ r.emp_code }}{% if r.dept %} · {{ r.dept }}{% endif %}</small></td>
+        <td>{{ r.issued_on|nicedate }}{% if r.reason %}<br><small class="muted">{{ r.reason }}</small>{% endif %}</td>
+        <td class="num">{{ r.amount|money }}</td>
+        <td class="num">{{ r.installment|money }}<br><small class="muted">from {{ r.start_month|monthname if r.start_month else '—' }}</small></td>
+        <td class="num">{{ r.paid|money }}</td>
+        <td class="num"><b>{{ r.balance|money }}</b></td>
+        <td><div class="bar" style="height:8px;border-radius:5px;background:#eef2f6"><i style="display:block;height:100%;border-radius:5px;width:{{ pct }}%;background:linear-gradient(90deg,#14b8a6,#22c55e)"></i></div><small class="muted">{{ pct }}%{% if r.state in ('active','paused') and r.installment %} · {{ ((r.balance / r.installment)|round(0,'ceil'))|int }} mo left{% endif %}</small></td>
+        <td><span class="badge ls-{{ r.state }}">{{ {'active':'Pending','paused':'Paused','completed':'Repaid','closed':'Closed'}[r.state] }}</span></td>
+        <td><a class="btn sm" href="{{ url_for('loan_view', lid=r.id) }}">Open</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="9" class="empty">{% if view == 'pending' %}🎉 No pending loans. Every loan is repaid.{% else %}No loans here.{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+    {% if rows %}<tfoot><tr><td colspan="2">Total ({{ rows|length }})</td><td class="num">{{ rows|sum(attribute='amount')|money }}</td><td></td>
+      <td class="num">{{ rows|sum(attribute='paid')|money }}</td><td class="num">{{ rows|sum(attribute='balance')|money }}</td><td colspan="3"></td></tr></tfoot>{% endif %}
+  </table></div>
+</div>
+{% endblock %}

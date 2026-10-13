@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% from "_dept_tabs.html" import dept_tabs with context %}
+{% block title %}Add department{% endblock %}
+{% block heading %}Add department{% endblock %}
+{% block content %}
+{{ dept_tabs('add') }}
+<div class="grid g2">
+  <form method="post" class="card">
+    {{ csrf() }}
+    <div class="card-head"><h2>➕ New department</h2></div>
+    <div class="form-grid">
+      <div><label>Department name *</label><input name="name" value="{{ d.name or '' }}" required autofocus placeholder="e.g. Sales"></div>
+      <div><label>Short code</label><input name="code" value="{{ d.code or '' }}" maxlength="8" placeholder="e.g. SAL"></div>
+      <div class="full"><label>Head of department</label><select name="head_id"><option value="">— Not set —</option>
+        {% for e in emps %}<option value="{{ e.id }}" {{ 'selected' if (d.head_id or '')|string == e.id|string }}>{{ e.name }} ({{ e.emp_code }}){% if e.designation %} · {{ e.designation }}{% endif %}</option>{% endfor %}</select></div>
+      <div class="full"><label>Description</label><textarea name="description" placeholder="What this department does (optional)">{{ d.description or '' }}</textarea></div>
+    </div>
+    <div class="btns" style="margin-top:16px">
+      <button class="btn primary">💾 Save department</button>
+      <button class="btn" name="again" value="1">Save &amp; add another</button>
+      <a class="btn" href="{{ url_for('departments') }}">Cancel</a>
+    </div>
+  </form>
+  <div class="card">
+    <div class="card-head"><h2>💡 Tips</h2></div>
+    <ul class="tips" style="margin-top:0">
+      <li>The <b>name</b> must be unique, for example Sales, Accounts, Production, Admin.</li>
+      <li>The <b>short code</b> appears on department cards and reports.</li>
+      <li>After adding, assign staff from <a href="{{ url_for('employee_bulk_edit') }}">Edit Employees</a> or when adding an employee.</li>
+      <li>Departments are also created automatically when you import employees from Excel.</li>
+      <li>To rename, merge or delete departments use <a href="{{ url_for('departments_manage') }}">Manage Departments</a>.</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}

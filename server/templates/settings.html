@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% block title %}Settings{% endblock %}
+{% block heading %}Settings{% endblock %}
+{% block content %}
+{% set prt = request.host.split(':')[1] if ':' in request.host else '80' %}
+<div class="note">Staff on the same network open this system at <b>http://{{ lan }}:{{ prt }}</b>{% if pcname %} or, from Windows PCs, <b>http://{{ pcname }}:{{ prt }}</b> (this name never changes){% endif %}.
+  If the number keeps changing, run <b>FIX-IP.bat</b> (in the HR-System folder) once as administrator.</div>
+<form method="post" class="card">
+  {{ csrf() }}<input type="hidden" name="form" value="general">
+  <fieldset><legend>Company</legend>
+    <div class="form-grid">
+      <div><label>Company name</label><input name="company_name" value="{{ settings.company_name }}" required></div>
+      <div class="full"><label>Address (printed on payslips)</label><input name="company_address" value="{{ settings.company_address }}"></div>
+      <div><label>Currency</label><input name="currency" value="{{ settings.currency }}"></div>
+    </div>
+  </fieldset>
+  <fieldset><legend>Office timing & attendance rules</legend>
+    <div class="form-grid">
+      <div><label>Office starts</label><input type="time" name="office_start" value="{{ settings.office_start }}"></div>
+      <div><label>Office ends</label><input type="time" name="office_end" value="{{ settings.office_end }}"></div>
+      <div><label>Grace time before “late” (minutes)</label><input type="number" min="0" name="grace_minutes" value="{{ settings.grace_minutes }}"></div>
+      <div><label>Deduct 1 day salary for every N lates (0 = off)</label><input type="number" min="0" name="lates_per_day" value="{{ settings.lates_per_day }}"></div>
+      <div><label>🔒 Auto sign-out after no activity (minutes, 0 = never)</label><input type="number" min="0" name="idle_minutes" value="{{ settings.idle_minutes or 30 }}"></div>
+      <div class="full"><label>Weekly off days</label>
+        <div class="btns">{% for w in weekdays %}<label class="check" style="margin-right:12px"><input type="checkbox" name="weekly_off" value="{{ loop.index0 }}" {{ 'checked' if loop.index0 in off }}>{{ w }}</label>{% endfor %}</div>
+      </div>
+    </div>
+  </fieldset>
+  <button class="btn primary">Save settings</button>
+</form>
+
+<div class="card">
+  <div class="card-head"><h2>Leave types</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Name</th><th>Days per year (0 = no limit)</th><th>Paid</th><th></th><th></th></tr></thead>
+    <tbody>
+    {% for t in types %}{% set f = 'lt%d' % t.id %}
+      <tr>
+        <td><input form="{{ f }}" name="name" value="{{ t.name }}" required></td>
+        <td><input form="{{ f }}" type="number" min="0" name="days_per_year" value="{{ t.days_per_year }}" style="max-width:110px"></td>
+        <td><label class="check"><input form="{{ f }}" type="checkbox" name="paid" value="1" {{ 'checked' if t.paid }}>Paid</label></td>
+        <td><form id="{{ f }}" method="post">{{ csrf() }}<input type="hidden" name="form" value="leave_type"><input type="hidden" name="id" value="{{ t.id }}"><button class="btn sm">Save</button></form></td>
+        <td><form method="post" onsubmit="return confirm('Delete this leave type?')">{{ csrf() }}<input type="hidden" name="form" value="leave_type_delete"><input type="hidden" name="id" value="{{ t.id }}"><button class="btn sm danger">Delete</button></form></td>
+      </tr>
+    {% endfor %}
+    <tr>
+      <td><input form="ltnew" name="name" placeholder="New leave type, e.g. Maternity" required></td>
+      <td><input form="ltnew" type="number" min="0" name="days_per_year" value="0" style="max-width:110px"></td>
+      <td><label class="check"><input form="ltnew" type="checkbox" name="paid" value="1" checked>Paid</label></td>
+      <td><form id="ltnew" method="post">{{ csrf() }}<input type="hidden" name="form" value="leave_type"><button class="btn sm primary">Add</button></form></td><td></td>
+    </tr>
+    </tbody>
+  </table></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Backup</h2></div>
+  <p class="muted" style="margin-top:0">All data is stored in one file, <code>hr.db</code>, next to the program. Download a backup regularly and keep it on a USB drive or another PC. A copy is also saved in the <code>backups</code> folder.</p>
+  <a class="btn" href="{{ url_for('backup') }}">Download backup now</a>
+</div>
+{% endblock %}

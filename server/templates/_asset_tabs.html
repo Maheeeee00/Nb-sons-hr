@@ -1,0 +1,14 @@
+{% macro asset_tabs(active) %}
+<nav class="subnav">
+  <a href="{{ url_for('assets') }}" class="{{ 'on' if active == 'list' }}"><span>💻</span> All Assets</a>
+  {% if can('assets.manage') %}
+  <a href="{{ url_for('asset_new') }}" class="{{ 'on' if active == 'add' }}"><span>➕</span> Add Asset</a>
+  <a href="{{ url_for('assets_assign') }}" class="{{ 'on' if active == 'assign' }}"><span>🤝</span> Assign / Return</a>
+  {% endif %}
+  <a href="{{ url_for('assets_history') }}" class="{{ 'on' if active == 'history' }}"><span>🕘</span> Assignment History</a>
+  <a href="{{ url_for('assets', export='csv') }}"><span>📥</span> Export</a>
+</nav>
+{% endmacro %}
+{% macro asset_icon(cat) -%}
+{{ {'Laptop':'💻','Desktop PC':'🖥️','Monitor':'🖥️','Mobile Phone':'📱','SIM Card':'📶','Tablet':'📲','Printer':'🖨️','Furniture':'🪑','Vehicle':'🚗','Tools':'🧰','ID Card / Access Card':'🪪','Uniform':'👔'}.get(cat, '📦') }}
+{%- endmacro %}

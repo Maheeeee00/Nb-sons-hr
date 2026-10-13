@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% from "_emp_tabs.html" import emp_tabs with context %}
+{% block title %}Edit employees{% endblock %}
+{% block heading %}Edit employees{% endblock %}
+{% block content %}
+{{ emp_tabs('edit') }}
+<div class="card">
+  <form class="inline" method="get" style="margin-bottom:6px">
+    <div><label>Find employee</label><input name="q" value="{{ term }}" placeholder="Name, code, CNIC, phone…" style="min-width:240px"></div>
+    <div><label>Department</label><select name="dept"><option value="">All</option>
+      {% for d in depts %}<option value="{{ d.id }}" {{ 'selected' if request.args.dept == d.id|string }}>{{ d.name }}</option>{% endfor %}</select></div>
+    <div><label>Status</label><select name="status">
+      {% for s, l in [('all','All'),('active','Active'),('inactive','Inactive')] %}<option value="{{ s }}" {{ 'selected' if status == s }}>{{ l }}</option>{% endfor %}</select></div>
+    <button class="btn">Filter</button>
+  </form>
+  <p class="muted" style="margin:6px 0 0;font-size:13px">✏️ Click any cell and type to change it. Changed rows turn yellow. Click <b>Save changes</b> when done.
+    For all details (address, bank, login…) use <b>Full edit</b>.</p>
+</div>
+
+<form method="post" class="card" id="bulk">
+  {{ csrf() }}
+  <input type="hidden" name="q" value="{{ term }}"><input type="hidden" name="dept" value="{{ request.args.dept or '' }}"><input type="hidden" name="status" value="{{ status }}">
+  <div class="card-head">
+    <h2>{{ rows|length }} employee(s)</h2>
+    <div class="btns"><span class="muted" id="chg"></span><button class="btn primary" id="save1" disabled>💾 Save changes</button></div>
+  </div>
+  <div class="table-wrap"><table class="editgrid">
+    <thead><tr><th>Code</th><th>Full name</th><th>Department</th><th>Designation</th><th>Manager</th><th>Phone</th><th>CNIC</th><th>Joined</th><th>Type</th>
+      <th class="num">Basic</th><th class="num">Allowances</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for e in rows %}{% set i = e.id %}
+      <tr data-id="{{ i }}">
+        <td><b>{{ e.emp_code }}</b><input type="checkbox" name="changed" value="{{ i }}" hidden></td>
+        <td><input name="name_{{ i }}" value="{{ e.name }}" required style="min-width:170px"></td>
+        <td><select name="department_id_{{ i }}"><option value="">—</option>
+          {% for d in depts %}<option value="{{ d.id }}" {{ 'selected' if e.department_id == d.id }}>{{ d.name }}</option>{% endfor %}</select></td>
+        <td><input name="designation_{{ i }}" value="{{ e.designation or '' }}" style="min-width:140px"></td>
+        <td><select name="manager_id_{{ i }}" style="min-width:150px"><option value="">—</option>
+          {% for m in managers if m.id != i %}<option value="{{ m.id }}" {{ 'selected' if e.manager_id == m.id }}>{{ m.name }}</option>{% endfor %}</select></td>
+        <td><input name="phone_{{ i }}" value="{{ e.phone or '' }}" style="min-width:120px"></td>
+        <td><input name="cnic_{{ i }}" value="{{ e.cnic or '' }}" style="min-width:140px"></td>
+        <td><input type="date" name="join_date_{{ i }}" value="{{ e.join_date or '' }}"></td>
+        <td><select name="employment_type_{{ i }}">
+          {% for t in ['', 'Permanent', 'Contract', 'Probation', 'Intern', 'Daily wages'] %}<option {{ 'selected' if (e.employment_type or '') == t }}>{{ t }}</option>{% endfor %}</select></td>
+        <td><input type="number" step="any" min="0" name="basic_salary_{{ i }}" value="{{ (e.basic_salary or 0)|num }}" class="n"></td>
+        <td><input type="number" step="any" min="0" name="allowances_{{ i }}" value="{{ (e.allowances or 0)|num }}" class="n"></td>
+        <td><select name="status_{{ i }}"><option value="active" {{ 'selected' if e.status == 'active' }}>Active</option><option value="inactive" {{ 'selected' if e.status == 'inactive' }}>Inactive</option></select></td>
+        <td><a class="btn sm" href="{{ url_for('employee_edit', eid=i) }}">✏️ Full edit</a></td>
+      </tr>
+    {% else %}<tr><td colspan="13" class="empty">No employees match.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  {% if rows %}<div style="margin-top:14px" class="btns"><button class="btn primary" id="save2" disabled>💾 Save changes</button>
+    <a class="btn" href="{{ request.full_path }}">Undo all</a></div>{% endif %}
+</form>
+<script>
+(function(){
+  var f=document.getElementById('bulk'),n=0;
+  function mark(tr){var cb=tr.querySelector('input[name=changed]');if(!cb.checked){cb.checked=true;tr.classList.add('dirty');n++;
+    document.getElementById('chg').textContent=n+' row(s) changed';['save1','save2'].forEach(function(id){var b=document.getElementById(id);if(b)b.disabled=false});}}
+  f.addEventListener('input',function(e){var tr=e.target.closest('tr[data-id]');if(tr)mark(tr)});
+  f.addEventListener('change',function(e){var tr=e.target.closest('tr[data-id]');if(tr)mark(tr)});
+  window.addEventListener('beforeunload',function(e){if(n&&!f.dataset.sub){e.preventDefault();e.returnValue=''}});
+  f.addEventListener('submit',function(){f.dataset.sub=1});
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "_asset_tabs.html" import asset_tabs, asset_icon with context %}
+{% block title %}Asset history{% endblock %}
+{% block heading %}Assignment history{% endblock %}
+{% block content %}
+{{ asset_tabs('history') }}
+<div class="card"><div class="table-wrap"><table>
+  <thead><tr><th>Asset</th><th>Employee</th><th>Given</th><th>Returned</th><th>Condition</th><th>Notes</th></tr></thead>
+  <tbody>
+  {% for h in rows %}
+    <tr><td><a href="{{ url_for('asset_view', aid=h.asset_id) }}">{{ asset_icon(h.category) }} <b>{{ h.asset_code }}</b> · {{ h.aname }}</a></td>
+      <td>{% if h.emp_id %}<a href="{{ url_for('employee_view', eid=h.emp_id) }}">{{ h.ename }}</a>{% else %}{{ h.ename }}{% endif %}</td>
+      <td>{{ h.assigned_on|nicedate }}<br><small>by {{ h.assigned_by or '—' }}</small></td>
+      <td>{% if h.returned_on %}{{ h.returned_on|nicedate }}<br><small>by {{ h.received_by or '—' }}</small>{% else %}<span class="badge as-assigned">With employee</span>{% endif %}</td>
+      <td>{{ h.condition_out or '—' }} → {{ h.condition_in or '—' }}</td>
+      <td class="wrap">{{ h.notes or '' }}{% if h.return_notes %}<br><small>{{ h.return_notes }}</small>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="6" class="empty">No assignments yet.</td></tr>{% endfor %}
+  </tbody>
+</table></div></div>
+{% endblock %}

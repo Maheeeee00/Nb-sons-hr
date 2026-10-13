@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_m.html" import badge, csrf %}
+{% block title %}Leaves{% endblock %}
+{% block heading %}Leaves{% endblock %}
+{% block content %}
+{% if can('leaves.approve') %}
+<details class="card" open>
+  <summary style="cursor:pointer;font-weight:600">➕ Record a leave for an employee (approved immediately, added to attendance)</summary>
+  <form method="post" class="form-grid" style="margin-top:14px">
+    {{ csrf() }}
+    <div><label>Employee</label><select name="employee_id" required><option value="">Choose…</option>
+      {% for e in emps %}<option value="{{ e.id }}">{{ e.name }} ({{ e.emp_code }})</option>{% endfor %}</select></div>
+    <div><label>Leave type</label><select name="leave_type_id" required>
+      {% for t in types %}<option value="{{ t.id }}">{{ t.name }}{% if not t.paid %} (unpaid){% endif %}</option>{% endfor %}</select></div>
+    <div><label>From</label><input type="date" name="start_date" required></div>
+    <div><label>To</label><input type="date" name="end_date" required></div>
+    <div class="full"><label>Reason</label><input name="reason"></div>
+    <div><button class="btn primary">Save leave</button></div>
+  </form>
+</details>
+{% endif %}
+
+<div class="card">
+  <div class="tabs">
+    {% for s, l in [('pending','Pending'),('approved','Approved'),('rejected','Rejected'),('cancelled','Cancelled'),('all','All')] %}
+      <a href="{{ url_for('leaves', status=s) }}" class="{{ 'on' if status == s }}">{{ l }}{% if s == 'pending' and pending_leaves %} ({{ pending_leaves }}){% endif %}</a>
+    {% endfor %}
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th class="num">Days</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody>
+    {% for l in rows %}
+      <tr>
+        <td><b>{{ l.name }}</b><br><small>{{ l.emp_code }} · applied {{ l.applied_on or '' }}</small></td>
+        <td>{{ l.tname }}{% if not l.paid %} <small>(unpaid)</small>{% endif %}</td>
+        <td>{{ l.start_date|nicedate }}</td><td>{{ l.end_date|nicedate }}</td><td class="num">{{ l.days|num }}</td>
+        <td class="wrap">{{ l.reason or '—' }}{% if l.remarks %}<br><small>HR: {{ l.remarks }}</small>{% endif %}</td>
+        <td>{{ badge(l.status) }}{% if l.decided_by %}<br><small>by {{ l.decided_by }}</small>{% endif %}</td>
+        <td>
+          {% if l.status == 'pending' %}
+          <form method="post" action="{{ url_for('leave_decide', lid=l.id) }}" class="inline">
+            {{ csrf() }}<input name="remarks" placeholder="Remarks (optional)" style="min-width:140px">
+            <button name="action" value="approve" class="btn sm ok">Approve</button>
+            <button name="action" value="reject" class="btn sm danger">Reject</button>
+          </form>
+          {% elif l.status == 'approved' %}
+          <form method="post" action="{{ url_for('leave_decide', lid=l.id) }}" onsubmit="return confirm('Cancel this approved leave?')">
+            {{ csrf() }}<button name="action" value="cancel" class="btn sm">Cancel leave</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}<tr><td colspan="8" class="empty">No {{ status if status != 'all' else '' }} leaves recorded.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

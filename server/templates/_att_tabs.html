@@ -1,0 +1,8 @@
+{% macro att_tabs(active) %}
+<nav class="subnav">
+  <a href="{{ url_for('attendance') }}" class="{{ 'on' if active == 'daily' }}"><span>✅</span> Daily Attendance</a>
+  <a href="{{ url_for('attendance_manage') }}" class="{{ 'on' if active == 'manage' }}"><span>🛠️</span> Manage Attendance</a>
+  <a href="{{ url_for('attendance_import') }}" class="{{ 'on' if active == 'import' }}"><span>📤</span> Import Attendance</a>
+  <a href="{{ url_for('attendance_report') }}" class="{{ 'on' if active == 'report' }}"><span>📊</span> Monthly Report</a>
+</nav>
+{% endmacro %}

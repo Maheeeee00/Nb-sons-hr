@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}My payslips{% endblock %}
+{% block heading %}My payslips{% endblock %}
+{% block content %}
+<div class="card"><div class="table-wrap"><table>
+  <thead><tr><th>Month</th><th class="num">Gross</th><th class="num">Deductions</th><th class="num">Net ({{ settings.currency }})</th><th>Paid on</th><th></th></tr></thead>
+  <tbody>
+  {% for p in rows %}
+    <tr><td><b>{{ p.month|monthname }}</b></td>
+      <td class="num">{{ (p.basic + p.allowances + p.overtime + p.bonus)|money }}</td>
+      <td class="num">{{ (p.absent_deduction + p.tax + p.other_deductions)|money }}</td>
+      <td class="num"><b>{{ p.net|money }}</b></td><td>{{ p.paid_on|nicedate }}</td>
+      <td><a class="btn sm" href="{{ url_for('payslip', pid=p.id) }}">View / print</a></td></tr>
+  {% else %}<tr><td colspan="6" class="empty">No paid salaries yet. Payslips appear here once HR marks your salary as paid.</td></tr>{% endfor %}
+  </tbody>
+</table></div></div>
+{% endblock %}

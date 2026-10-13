@@ -1,0 +1,14 @@
+{% macro badge(s) -%}
+<span class="badge b-{{ s }}">{{ (s or '')|replace('_', ' ')|title }}</span>
+{%- endmacro %}
+{% macro csrf() -%}
+<input type="hidden" name="csrf" value="{{ csrf_token() }}">
+{%- endmacro %}
+{% macro month_nav(endpoint, month, prev, next) -%}
+<form class="inline" method="get" action="{{ url_for(endpoint) }}">
+  <a class="btn sm" href="{{ url_for(endpoint, month=prev, **kwargs) }}">&larr;</a>
+  <input type="month" name="month" value="{{ month }}" onchange="this.form.submit()">
+  {% for k, v in kwargs.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  <a class="btn sm" href="{{ url_for(endpoint, month=next, **kwargs) }}">&rarr;</a>
+</form>
+{%- endmacro %}

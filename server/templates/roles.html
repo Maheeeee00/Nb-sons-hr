@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% block title %}Roles & permissions{% endblock %}
+{% block heading %}Roles & permissions{% endblock %}
+{% block actions %}<a class="btn" href="{{ url_for('users') }}">🔐 Users & logins</a>{% endblock %}
+{% block content %}
+<nav class="subnav">
+  <a href="{{ url_for('users') }}"><span>🔐</span> Users & Logins</a>
+  <a href="{{ url_for('roles_page') }}" class="on"><span>🛡️</span> Roles & Permissions</a>
+</nav>
+
+<div class="grid g2">
+  <form method="post" class="card">
+    {{ csrf() }}<input type="hidden" name="action" value="add">
+    <div class="card-head"><h2>➕ Create a new role</h2></div>
+    <div class="form-grid">
+      <div><label>Role name *</label><input name="name" required placeholder="e.g. Accountant, Store Keeper, Manager"></div>
+      <div><label>Start with permissions of</label><select name="copy_from"><option value="">Nothing (blank)</option>
+        {% for r in roles %}<option value="{{ r.key }}">{{ r.name }}</option>{% endfor %}</select></div>
+      <div class="full"><label>Description</label><input name="description" placeholder="What this role is for (optional)"></div>
+    </div>
+    <div style="margin-top:14px"><button class="btn primary">Create role</button></div>
+  </form>
+  <div class="card">
+    <div class="card-head"><h2>💡 How it works</h2></div>
+    <ul class="tips" style="margin-top:0">
+      <li>Every login has <b>one role</b>. A role decides which menus and buttons the person sees.</li>
+      <li><b>View</b> lets them look; <b>Manage</b> lets them add, change and delete.</li>
+      <li><b>Administrator</b> always has full access and can't be changed, so you can never lock yourself out.</li>
+      <li>Everyone linked to an employee record also gets <b>My Space</b> (own attendance, leaves, payslips, assets).</li>
+      <li>Give a role to a person on <a href="{{ url_for('users') }}">Users & Logins</a>.</li>
+    </ul>
+  </div>
+</div>
+
+<form method="post" class="card">
+  {{ csrf() }}<input type="hidden" name="action" value="save">
+  <div class="card-head">
+    <div><h2>🛡️ Permission matrix</h2><small>Tick what each role may do, then click Save.</small></div>
+    <button class="btn primary">💾 Save permissions</button>
+  </div>
+  <div class="table-wrap"><table class="perm">
+    <thead>
+      <tr><th class="pm-left">Module / permission</th>
+        {% for r in roles %}<th class="pm-role">
+          {% if r.key == 'admin' %}<b>{{ r.name }}</b>{% else %}<input name="name_{{ r.key }}" value="{{ r.name }}" class="rname">{% endif %}
+          <small>{{ r.n }} user{{ 's' if r.n != 1 }}{% if r.system %} · built-in{% endif %}</small>
+        </th>{% endfor %}</tr>
+    </thead>
+    <tbody>
+    {% for module, items in groups.items() %}
+      <tr class="pm-mod"><td colspan="{{ roles|length + 1 }}">{{ {'Employees':'👥','Departments':'🏢','Attendance':'✅','Leaves':'🌴','Payroll':'💰','Assets':'💻','System':'⚙️'}[module] }} {{ module }}</td></tr>
+      {% for key, label in items %}
+      <tr><td class="pm-left">{{ label }} <small class="muted">{{ key }}</small></td>
+        {% for r in roles %}<td class="pm-cell">
+          <label class="tick"><input type="checkbox" name="p_{{ r.key }}" value="{{ key }}" {{ 'checked' if key in role_perms[r.key] }} {{ 'disabled' if r.key == 'admin' }}><span></span></label>
+        </td>{% endfor %}</tr>
+      {% endfor %}
+    {% endfor %}
+      <tr class="pm-mod"><td colspan="{{ roles|length + 1 }}">📝 Description</td></tr>
+      <tr><td class="pm-left">Shown on the users page</td>
+        {% for r in roles %}<td class="pm-cell">{% if r.key == 'admin' %}<small>{{ r.description }}</small>{% else %}<input name="desc_{{ r.key }}" value="{{ r.description or '' }}" style="min-width:150px;font-size:12.5px">{% endif %}</td>{% endfor %}</tr>
+      <tr><td class="pm-left"></td>
+        {% for r in roles %}<td class="pm-cell">
+          {% if r.key != 'admin' %}<button type="button" class="btn sm" onclick="tickAll('{{ r.key }}', true)">All</button>
+          <button type="button" class="btn sm" onclick="tickAll('{{ r.key }}', false)">None</button>{% endif %}
+        </td>{% endfor %}</tr>
+    </tbody>
+  </table></div>
+  <div style="margin-top:14px"><button class="btn primary">💾 Save permissions</button></div>
+</form>
+
+{% set custom = roles|selectattr('system', 'equalto', 0)|list %}
+{% if custom %}
+<div class="card">
+  <div class="card-head"><h2>🗑 Delete a custom role</h2></div>
+  <div class="btns">
+  {% for r in custom %}
+    <form method="post" onsubmit="return confirm('Delete role {{ r.name }}?')">{{ csrf() }}<input type="hidden" name="action" value="delete"><input type="hidden" name="key" value="{{ r.key }}">
+      <button class="btn sm danger" {{ 'disabled title="Users still have this role"' if r.n }}>Delete “{{ r.name }}”{% if r.n %} ({{ r.n }} users){% endif %}</button></form>
+  {% endfor %}
+  </div>
+</div>
+{% endif %}
+<script>function tickAll(k,v){document.querySelectorAll('input[name="p_'+k+'"]').forEach(function(c){c.checked=v})}</script>
+{% endblock %}
