@@ -195,13 +195,13 @@ async fn find_servers() -> Vec<ServerInfo> {
     tauri::async_runtime::spawn_blocking(scan).await.unwrap_or_default()
 }
 
-/// Every 3 s check the server; if it stops answering twice in a row (about 6 s), show the
+/// Every 2 s check the server; if it stops answering twice in a row (about 4 s), show the
 /// "server is off" page (which reconnects by itself when the server is back).
 fn start_monitor(app: AppHandle) {
     std::thread::spawn(move || {
         let mut fails = 0;
         loop {
-            std::thread::sleep(Duration::from_secs(3));
+            std::thread::sleep(Duration::from_secs(2));
             let state = app.state::<Arc<State>>();
             if !state.connected.load(Ordering::SeqCst) {
                 fails = 0;
@@ -221,9 +221,37 @@ fn start_monitor(app: AppHandle) {
     });
 }
 
+/// After every page load inside the HR System, confirm the server really answered.
+/// If the server is off, the webview shows its own error page — replace it at once
+/// with the "Server is off" screen so nothing from the HR System can be opened.
+fn check_after_load(app: AppHandle, url: Url) {
+    if !matches!(url.scheme(), "http" | "https") {
+        return; // our own built-in screens
+    }
+    std::thread::spawn(move || {
+        let state = app.state::<Arc<State>>();
+        if !state.connected.load(Ordering::SeqCst) {
+            return;
+        }
+        let server = state.server.lock().unwrap().clone();
+        let Some(server) = server else { return };
+        let ok = parse_addr(&server)
+            .map(|(h, p)| ping(&h, p, Duration::from_secs(2)).is_ok())
+            .unwrap_or(false);
+        if !ok {
+            go_home(&app, "offline=1");
+        }
+    });
+}
+
 fn main() {
     let state = Arc::new(State::default());
     tauri::Builder::default()
+        .on_page_load(|webview, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+                check_after_load(webview.app_handle().clone(), payload.url().clone());
+            }
+        })
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();

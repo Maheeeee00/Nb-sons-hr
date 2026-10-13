@@ -1,6 +1,6 @@
 [package]
 name = "nbsons-hr"
-version = "1.1.1"
+version = "1.1.2"
 description = "NB Sons HR System - Client"
 edition = "2021"
 
