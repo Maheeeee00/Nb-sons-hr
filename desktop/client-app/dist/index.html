@@ -32,6 +32,13 @@
   .center{text-align:center} .spin{width:30px;height:30px;margin:14px auto;border:4px solid #e2e8f0;border-top-color:var(--teal);border-radius:50%;animation:r .9s linear infinite}
   @keyframes r{to{transform:rotate(360deg)}}
   .offline .logo{background:linear-gradient(135deg,#f97316,#ef4444)}
+  .offhead{text-align:center;margin:4px 0 6px}
+  .officon{width:64px;height:64px;margin:0 auto 10px;border-radius:50%;display:grid;place-items:center;font-size:30px;
+           color:#fff;background:linear-gradient(135deg,#f97316,#ef4444);box-shadow:0 0 0 8px #fee2e2;animation:pulse 2s ease-in-out infinite}
+  @keyframes pulse{50%{box-shadow:0 0 0 14px #fee2e2}}
+  .offtitle{font-size:22px;font-weight:800;color:var(--bad)}
+  .offsub{color:#475569;font-size:14.5px;margin-top:4px}
+  .offline .head{display:none}
   [hidden]{display:none!important}
 </style></head>
 <body>
@@ -45,8 +52,15 @@
 
   <!-- offline -->
   <div id="v-offline" hidden>
-    <div class="msg err" style="display:block"><b>Can't reach the HR server</b><br>
-      <span id="off-server"></span><br>Make sure the server PC is switched on and <b>NB Sons HR Server</b> is running.</div>
+    <div class="offhead">
+      <div class="officon">⚠</div>
+      <div class="offtitle">Server is off</div>
+      <div class="offsub">We are unable to open the HR System right now.</div>
+    </div>
+    <div class="msg err" style="display:block"><b>What to do</b><br>
+      Ask the person at the <b>server PC</b> to switch it on and open <b>NB Sons HR Server</b>.<br>
+      This window will open the HR System by itself as soon as the server is back.<br>
+      <small id="off-server" style="opacity:.75"></small></div>
     <div class="msg info" style="display:block" id="off-retry">Trying again automatically…</div>
     <div class="row" style="margin-top:12px"><button class="primary" style="flex:1" onclick="retryNow()">Try again now</button>
       <button class="ghost" onclick="showSetup()">Change server</button></div>
@@ -74,7 +88,8 @@
   function view(name) {
     ['connecting', 'offline', 'setup'].forEach(v => $('v-' + v).hidden = v !== name);
     $('card').classList.toggle('offline', name === 'offline');
-    $('subtitle').textContent = name === 'offline' ? 'Server not reachable' : "Connect to your company's HR server";
+    $('subtitle').textContent = "Connect to your company's HR server";
+    document.title = name === 'offline' ? 'NB Sons HR — Server is off' : 'NB Sons HR';
   }
   function setMsg(text, kind) { const m = $('setup-msg'); m.className = 'msg ' + (kind || ''); m.textContent = text || ''; }
   function niceErr(e) { return (typeof e === 'string') ? e : (e && e.message) || 'Something went wrong.'; }
@@ -94,7 +109,7 @@
     $('addr').focus();
   }
   function showOffline(server) {
-    view('offline'); $('off-server').textContent = server ? 'Server: ' + server.replace(/^https?:\/\//, '') : '';
+    view('offline'); $('off-server').textContent = server ? 'Server address: ' + server.replace(/^https?:\/\//, '') : '';
     let n = 5; clearInterval(timer);
     timer = setInterval(async () => {
       n -= 1; $('off-retry').textContent = 'Trying again automatically in ' + Math.max(n, 0) + ' s…';

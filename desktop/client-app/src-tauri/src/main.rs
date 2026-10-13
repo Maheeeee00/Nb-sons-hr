@@ -195,13 +195,13 @@ async fn find_servers() -> Vec<ServerInfo> {
     tauri::async_runtime::spawn_blocking(scan).await.unwrap_or_default()
 }
 
-/// Every 10 s check the server; if it stops answering twice in a row, show the
-/// "can't reach the server" page (which reconnects by itself when the server is back).
+/// Every 3 s check the server; if it stops answering twice in a row (about 6 s), show the
+/// "server is off" page (which reconnects by itself when the server is back).
 fn start_monitor(app: AppHandle) {
     std::thread::spawn(move || {
         let mut fails = 0;
         loop {
-            std::thread::sleep(Duration::from_secs(10));
+            std::thread::sleep(Duration::from_secs(3));
             let state = app.state::<Arc<State>>();
             if !state.connected.load(Ordering::SeqCst) {
                 fails = 0;
@@ -210,7 +210,7 @@ fn start_monitor(app: AppHandle) {
             let server = state.server.lock().unwrap().clone();
             let Some(server) = server else { continue };
             let ok = parse_addr(&server)
-                .map(|(h, p)| ping(&h, p, Duration::from_secs(3)).is_ok())
+                .map(|(h, p)| ping(&h, p, Duration::from_secs(2)).is_ok())
                 .unwrap_or(false);
             fails = if ok { 0 } else { fails + 1 };
             if fails >= 2 {
