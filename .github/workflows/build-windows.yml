@@ -60,9 +60,10 @@ jobs:
         with: { name: NB-Sons-HR-installers, path: out/*.exe }
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: NB Sons HR 1.0.${{ github.run_number }}
+          tag_name: v1.1.${{ github.run_number }}
+          name: NB Sons HR 1.1.${{ github.run_number }}
           files: out/*.exe
           body: |
+            Version 1.1: Windows notifications with sound + NB Sons logo.
             NB Sons HR Server setup -> install on the ONE main PC.
             NB Sons HR setup -> install on every other office PC.

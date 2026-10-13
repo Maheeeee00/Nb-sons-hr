@@ -17,7 +17,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -128,6 +128,9 @@ DEFAULT_SETTINGS = {
     "weekly_off": "6",          # comma list of weekday numbers, Monday=0 ... Sunday=6
     "lates_per_day": "0",       # e.g. 3 = every 3 lates deduct 1 day salary; 0 = off
     "idle_minutes": "30",       # auto logout after this many minutes without activity
+    "notify_off": "",           # comma list of alert types switched off
+    "notify_sound": "1",        # play a sound with alerts
+    "notify_loud": "1",         # different, louder sound for important alerts
 }
 
 
@@ -432,6 +435,9 @@ def _before():
             now = datetime.now().timestamp()
             idle = int(to_float(get_settings().get("idle_minutes"), 30) or 0)
             last = session.get("seen", now)
+            if request.endpoint == "api_notifications":
+                g.idle_expired = idle > 0 and now - last > idle * 60
+                return None
             if idle > 0 and now - last > idle * 60 and request.endpoint not in ("static",):
                 audit("Logged out (idle)", f"no activity for {idle} min", user=g.user["username"])
                 token = session.get("csrf")
@@ -465,7 +471,9 @@ def auto_backup():
         autos = sorted(f for f in os.listdir(BACKUP_DIR) if f.startswith("auto-") and f.endswith(".db"))
         for old in autos[:-AUTO_BACKUPS_KEEP]:
             os.remove(os.path.join(BACKUP_DIR, old))
+        _last_auto["error"] = None
     except Exception as e:                                       # noqa: BLE001 - never block the app
+        _last_auto["error"] = str(e)[:200]
         print("Auto-backup failed:", e)
 
 
@@ -2652,6 +2660,12 @@ def settings_page():
             off = ",".join(v for v in request.form.getlist("weekly_off") if v.isdigit())
             x("UPDATE settings SET value=? WHERE key='weekly_off'", (off,))
             flash("Settings saved.", "ok")
+        elif form == "notify":
+            off = [t for t, *_ in NOTIFY_TYPES if not request.form.get("n_" + t)]
+            x("INSERT OR REPLACE INTO settings(key,value) VALUES('notify_off',?)", (",".join(off),))
+            for k in ("notify_sound", "notify_loud"):
+                x("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", (k, "1" if request.form.get(k) else "0"))
+            flash("Notification settings saved.", "ok")
         elif form == "leave_type":
             name = request.form.get("name", "").strip()
             days = int(to_float(request.form.get("days_per_year"), 0))
@@ -2676,7 +2690,9 @@ def settings_page():
                 flash("This leave type is used by existing leaves and can't be deleted. Rename it instead.", "error")
         return redirect(url_for("settings_page"))
     return render_template("settings.html", types=q("SELECT * FROM leave_types ORDER BY name"),
-                           off=weekly_off(), weekdays=WEEKDAYS, lan=lan_address(), pcname=socket.gethostname())
+                           off=weekly_off(), weekdays=WEEKDAYS, lan=lan_address(), pcname=socket.gethostname(),
+                           notify_types=NOTIFY_TYPES,
+                           notify_off=set((get_settings().get("notify_off") or "").split(",")))
 
 
 @app.route("/users", methods=["GET", "POST"])
@@ -3177,6 +3193,115 @@ def lan_address():
             return socket.gethostbyname(socket.gethostname())
         except OSError:
             return "127.0.0.1"
+
+
+# --------------------------------------------------------------------------- notifications
+NOTIFY_TYPES = [  # (type, label, permission needed to receive it, important?)
+    ("summary", "Daily attendance summary (present / late / absent)", ("attendance.view", "attendance.manage"), False),
+    ("leave_pending", "Leave waiting for approval", ("leaves.view", "leaves.approve"), False),
+    ("leave_upcoming", "Someone goes on leave tomorrow", ("leaves.view", "leaves.approve"), False),
+    ("payroll_due", "Payroll not generated yet (month end)", ("payroll.manage",), False),
+    ("loans_due", "Loan installments due this month", ("payroll.view",), False),
+    ("asset_overdue", "Asset not returned on time", ("assets.view", "assets.manage"), False),
+    ("birthday", "Birthdays & work anniversaries", ("employees.view",), False),
+    ("security", "Security: account locked after wrong passwords", ("users",), True),
+    ("backup", "Daily backup failed", ("users", "backup"), True),
+]
+
+
+def build_alerts():
+    """Current alerts for the signed-in user. Each has a stable id so it pops up only once."""
+    today = date.today()
+    t = today.isoformat()
+    off = set((get_settings().get("notify_off") or "").split(","))
+    allowed = {k for k, _, perms, _ in NOTIFY_TYPES if k not in off and can(*perms)}
+    out = []
+
+    def add(kind, aid, title, body, url, important=False):
+        if kind in allowed:
+            out.append({"id": aid, "type": kind, "title": title, "body": body, "url": url, "important": important})
+
+    if "summary" in allowed:
+        by = {r["status"]: r["c"] for r in q("""SELECT a.status, COUNT(*) c FROM attendance a JOIN employees e
+                                                 ON e.id=a.employee_id WHERE a.date=? AND e.status='active'
+                                                 GROUP BY a.status""", (t,))}
+        if by:
+            absent = [r["name"] for r in q("""SELECT e.name FROM attendance a JOIN employees e ON e.id=a.employee_id
+                                               WHERE a.date=? AND a.status='absent' ORDER BY e.name LIMIT 4""", (t,))]
+            body = (f"{(by.get('present') or 0) + (by.get('half_day') or 0)} present · {by.get('late') or 0} late · "
+                    f"{by.get('absent') or 0} absent · {by.get('leave') or 0} on leave")
+            if absent:
+                body += "\nAbsent: " + ", ".join(absent) + ("…" if (by.get("absent") or 0) > 4 else "")
+            add("summary", f"sum-{t}", "Today's attendance", body, url_for("attendance"))
+    for l in q("""SELECT l.id, e.name, t.name tn, l.start_date, l.days FROM leaves l JOIN employees e ON e.id=l.employee_id
+                  JOIN leave_types t ON t.id=l.leave_type_id WHERE l.status='pending' ORDER BY l.id DESC LIMIT 10"""):
+        add("leave_pending", f"lp-{l['id']}", "Leave waiting for approval",
+            f"{l['name']} · {l['tn']} · {num(l['days'])} day(s) from {nicedate(l['start_date'])}", url_for("leaves"))
+    tomorrow = (today + timedelta(days=1)).isoformat()
+    for l in q("""SELECT l.id, e.name, t.name tn, l.end_date, l.days FROM leaves l JOIN employees e ON e.id=l.employee_id
+                  JOIN leave_types t ON t.id=l.leave_type_id WHERE l.status='approved' AND l.start_date=?""", (tomorrow,)):
+        add("leave_upcoming", f"lu-{l['id']}", "On leave from tomorrow",
+            f"{l['name']} · {l['tn']} · {num(l['days'])} day(s), back after {nicedate(l['end_date'])}", url_for("leaves"))
+    if "payroll_due" in allowed:
+        active = q("SELECT COUNT(*) c FROM employees WHERE status='active'", one=True)["c"]
+        if active:
+            m = None
+            if today.day >= 26:
+                m = today.strftime("%Y-%m")
+            elif today.day <= 5:
+                m = (today.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+            if m and not q("SELECT 1 FROM payroll WHERE month=?", (m,), one=True):
+                add("payroll_due", f"pd-{m}", "Payroll reminder",
+                    f"Salaries for {monthname(m)} have not been generated yet.", url_for("payroll", month=m))
+    if "loans_due" in allowed and today.day <= 5:
+        n = q("""SELECT COUNT(*) c FROM loans l WHERE l.status='active' AND l.amount -
+                 COALESCE((SELECT SUM(amount) FROM loan_payments p WHERE p.loan_id=l.id),0) > 0.5""", one=True)["c"]
+        if n:
+            add("loans_due", f"ln-{today:%Y-%m}", "Loan installments this month",
+                f"{n} loan installment(s) will be deducted from {today:%B} salaries.", url_for("loans"))
+    for a in q("""SELECT s.id, s.expected_return, a.name an, a.asset_code, e.name en FROM asset_assignments s
+                  JOIN assets a ON a.id=s.asset_id LEFT JOIN employees e ON e.id=s.employee_id
+                  WHERE s.returned_on IS NULL AND s.expected_return IS NOT NULL AND s.expected_return<>''
+                  AND s.expected_return<? ORDER BY s.expected_return LIMIT 10""", (t,)):
+        add("asset_overdue", f"ao-{a['id']}", "Asset not returned",
+            f"{a['an']} ({a['asset_code']}) with {a['en'] or 'employee'} – was due {nicedate(a['expected_return'])}",
+            url_for("assets_assign"))
+    if "birthday" in allowed:
+        md = today.strftime("%m-%d")
+        for e in q("""SELECT id, name, dob, join_date FROM employees WHERE status='active'
+                      AND (substr(dob,6,5)=? OR substr(join_date,6,5)=?)""", (md, md)):
+            if (e["dob"] or "")[5:10] == md:
+                add("birthday", f"bd-{e['id']}-{today.year}", "🎂 Birthday today", f"{e['name']} has a birthday today.",
+                    url_for("employee_view", eid=e["id"]))
+            jd = parse_date(e["join_date"])
+            if jd and jd.strftime("%m-%d") == md and jd.year < today.year:
+                yrs = today.year - jd.year
+                add("birthday", f"wa-{e['id']}-{today.year}", "🎉 Work anniversary",
+                    f"{e['name']} completes {yrs} year{'s' if yrs > 1 else ''} with the company today.",
+                    url_for("employee_view", eid=e["id"]))
+    if "security" in allowed:
+        since = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+        for a in q("""SELECT id, at, username FROM audit_log WHERE action='Account locked' AND at>=?
+                      ORDER BY id DESC LIMIT 5""", (since,)):
+            add("security", f"sec-{a['id']}", "⚠️ Account locked",
+                f"'{a['username']}' was locked after 5 wrong passwords ({a['at'][11:16]}).", url_for("users"), True)
+    if "backup" in allowed and _last_auto.get("error"):
+        add("backup", f"bk-{t}", "⚠️ Daily backup failed",
+            "Today's automatic backup could not be saved: " + _last_auto["error"], url_for("activity"), True)
+    return out
+
+
+@app.route("/api/notifications")
+def api_notifications():
+    if not g.get("user") or g.get("idle_expired"):
+        return app.response_class('{"error": "signed out"}', status=401, mimetype="application/json")
+    s = get_settings()
+    import json as _j
+    resp = app.response_class(_j.dumps({"sound": s.get("notify_sound", "1") == "1",
+                                        "loud": s.get("notify_loud", "1") == "1",
+                                        "items": build_alerts()}), mimetype="application/json")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.route("/api/ping")

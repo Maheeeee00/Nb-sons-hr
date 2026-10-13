@@ -59,4 +59,20 @@
   <p class="muted" style="margin-top:0">All data is stored in one file, <code>hr.db</code>, next to the program. Download a backup regularly and keep it on a USB drive or another PC. A copy is also saved in the <code>backups</code> folder.</p>
   <a class="btn" href="{{ url_for('backup') }}">Download backup now</a>
 </div>
+<form method="post" class="card" id="notify">
+  {{ csrf() }}<input type="hidden" name="form" value="notify">
+  <div class="card-head"><h2>🔔 Notifications</h2><button type="button" class="btn sm" onclick="window.nbTestAlert && nbTestAlert()">▶ Test pop-up &amp; sound</button></div>
+  <p class="muted" style="margin-top:0;font-size:13px">Pop-ups appear in the corner of the screen (Windows notifications in the NB Sons HR apps, or inside the page in a browser).
+    Each person only gets alerts for what their role is allowed to see.</p>
+  <div class="ntypes">
+    {% for t, label, perms, imp in notify_types %}
+    <label class="check"><input type="checkbox" name="n_{{ t }}" value="1" {{ '' if t in notify_off else 'checked' }}> {{ label }}{% if imp %} <span class="badge b-absent">important</span>{% endif %}</label>
+    {% endfor %}
+  </div>
+  <div class="ntypes" style="margin-top:12px;border-top:1px solid #eef2f6;padding-top:12px">
+    <label class="check"><input type="checkbox" name="notify_sound" value="1" {{ 'checked' if settings.notify_sound != '0' }}> 🔊 Play a sound with notifications</label>
+    <label class="check"><input type="checkbox" name="notify_loud" value="1" {{ 'checked' if settings.notify_loud != '0' }}> 🚨 Use a louder, different sound for important alerts</label>
+  </div>
+  <button class="btn primary" style="margin-top:12px">Save notification settings</button>
+</form>
 {% endblock %}

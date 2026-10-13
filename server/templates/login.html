@@ -3,12 +3,13 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in · {{ settings.company_name }} HR</title>
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
 <div class="login-wrap">
   <div class="login">
-    <div class="logo">HR</div>
+    <img class="login-logo" src="{{ url_for('static', filename='logo.png') }}" alt="Nazir's N.B – Where Every Life Matters">
     <h1>{{ settings.company_name }}</h1>
     <p class="muted" style="margin:0 0 6px">Sign in to the HR system</p>
     {% for cat, msg in get_flashed_messages(with_categories=true) %}

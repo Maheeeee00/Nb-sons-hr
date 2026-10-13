@@ -497,3 +497,31 @@ details.fold>summary:before{content:"▸ ";color:#0e7c86}
 details.fold[open]>summary:before{content:"▾ "}
 .loanline{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:8px 12px;margin-top:12px;font-size:13.5px}
 tr.warnrow td{background:#fff1f2}
+
+/* ---- notifications ---- */
+.nbell{position:relative}
+.npanel{display:none;position:absolute;right:0;top:48px;width:360px;max-width:calc(100vw - 24px);background:#fff;color:#1f2937;border-radius:14px;box-shadow:0 18px 50px rgba(15,42,68,.28);z-index:80;overflow:hidden;border:1px solid #e3e8ee}
+.npanel.on{display:block}
+.nhead{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid #eef2f6}
+.nhead button{border:0;background:none;color:#0e7c86;font-weight:600;cursor:pointer;font-size:12.5px}
+#nlist{max-height:380px;overflow:auto}
+.nitem{display:block;padding:10px 14px;border-bottom:1px solid #f1f5f9;text-decoration:none;color:inherit;font-size:13px;line-height:1.4}
+.nitem b{display:block;font-size:13.5px}.nitem span{color:#64748b}
+.nitem.new{background:#f0fdfa;border-left:3px solid #14b8a6}.nitem.imp.new{background:#fef2f2;border-left-color:#ef4444}
+.nitem:hover{background:#f8fafc}
+.nempty{padding:22px 14px;color:#94a3b8;text-align:center;font-size:13px}
+.nset{display:block;padding:10px 14px;font-size:12.5px;color:#0e7c86;text-decoration:none;background:#f8fafc}
+.ntoasts{position:fixed;right:16px;bottom:16px;z-index:200;display:flex;flex-direction:column;gap:10px;max-width:min(360px,calc(100vw - 32px))}
+.ntoast{position:relative;display:block;background:#0f2a44;color:#fff;border-radius:14px;padding:12px 34px 12px 14px;text-decoration:none;box-shadow:0 14px 40px rgba(0,0,0,.3);border-left:5px solid #14b8a6;animation:nin .35s ease;font-size:13px;line-height:1.4;transition:opacity .4s,transform .4s}
+.ntoast b{display:block;font-size:14px;margin-bottom:2px}.ntoast span{opacity:.88}
+.ntoast.imp{border-left-color:#ef4444;background:#3b0d0d}
+.ntoast i{position:absolute;top:8px;right:10px;font-style:normal;opacity:.6;cursor:pointer}
+.ntoast.out{opacity:0;transform:translateX(30px)}
+@keyframes nin{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
+.ntypes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 18px}
+@media (max-width:700px){.ntypes{grid-template-columns:1fr}}
+
+/* ---- company logo ---- */
+.logo.logo-img,.ologo.logo-img{background:#fff!important;padding:3px;overflow:hidden}
+.logo.logo-img img,.ologo.logo-img img{width:100%;height:100%;object-fit:contain;display:block}
+.login-logo{display:block;width:100%;max-width:260px;height:auto;margin:0 0 14px}

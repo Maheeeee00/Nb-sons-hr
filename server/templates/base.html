@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0b1522">
 <title>{% block title %}HR{% endblock %} · {{ settings.company_name }}</title>
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -16,7 +17,7 @@
 <header class="appbar">
   <button class="ibtn menubtn" type="button" aria-label="Open menu" onclick="document.body.classList.toggle('nav-open')">&#8942;</button>
   <a class="brand2" href="{{ url_for('dashboard') }}" style="color:#fff;text-decoration:none">
-    <span class="logo">HR</span>
+    <span class="logo logo-img"><img src="{{ url_for('static', filename='logo-badge.png') }}" alt="NB Sons"></span>
     <span><b>HR System</b><small>Management System</small></span>
   </a>
   {% if is_hr %}
@@ -31,7 +32,10 @@
     {% if is_hr %}<a class="ibtn showm" href="{{ url_for('search_page') }}" title="Search">🔍</a>{% endif %}
     {% if can('employees.manage') %}<a class="ibtn hide-m" href="{{ url_for('employee_new') }}" title="Add employee">&#10133;</a>{% endif %}
     {% if can('attendance.manage') %}<a class="ibtn hide-m" href="{{ url_for('attendance') }}" title="Today's attendance">&#128197;</a>{% endif %}
-    {% if can('leaves.view', 'leaves.approve') %}<a class="ibtn" href="{{ url_for('leaves') }}" title="Leaves">&#128276;{% if pending_leaves %}<span class="dot">{{ pending_leaves }}</span>{% endif %}</a>{% endif %}
+    {% if user and is_hr %}<div class="nbell"><button type="button" class="ibtn" id="nbtn" title="Notifications" aria-label="Notifications">&#128276;<span class="dot" id="ncount" hidden></span></button>
+      <div class="npanel" id="npanel"><div class="nhead"><b>Notifications</b><button type="button" id="nread">Mark all read</button></div>
+        <div id="nlist"><div class="nempty">No notifications right now.</div></div>
+        {% if can('settings') %}<a class="nset" href="{{ url_for('settings_page') }}#notify">⚙️ Notification settings</a>{% endif %}</div></div>{% endif %}
     <a class="userchip" href="{{ url_for('change_password') }}" title="Change password">
       <span class="av">{{ initials }}</span>
       <span class="uname"><b>{{ user.emp_name or user.username }}</b><small>{{ user.role_name }}</small></span>
@@ -46,7 +50,7 @@
 <div class="shell">
   <aside class="sidebar" id="sidebar">
     <div class="org">
-      <span class="ologo">{{ (settings.company_name.split()|map('first')|join)[:2]|upper }}</span>
+      <span class="ologo logo-img"><img src="{{ url_for('static', filename='logo-badge.png') }}" alt=""></span>
       <div><b>{{ settings.company_name }}</b><small>HR & Payroll</small></div>
     </div>
     <div class="navsearch"><input type="search" placeholder="Search modules…" oninput="filterNav(this.value)"></div>
@@ -170,6 +174,64 @@
     {% block content %}{% endblock %}
   </main>
 </div>
+{% if user and is_hr %}<div class="ntoasts" id="ntoasts"></div>
+<script>
+(function(){
+  var USER={{ user.username|tojson }}, KP='nb-popped-'+USER, KR='nb-read-'+USER, cfg={sound:true,loud:true}, items=[];
+  var T=(window.__TAURI__&&window.__TAURI__.core)?window.__TAURI__.core:null;
+  function load(k){try{return JSON.parse(localStorage.getItem(k)||'null')}catch(e){return null}}
+  function save(k,v){try{localStorage.setItem(k,JSON.stringify(v.slice(-400)))}catch(e){}}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+  var actx=null;
+  function tone(important){
+    if(!cfg.sound)return; var loud=important&&cfg.loud;
+    try{var C=window.AudioContext||window.webkitAudioContext;if(!C)return;actx=actx||new C();if(actx.state==='suspended')actx.resume();
+      var notes=loud?[[988,0],[740,.17],[988,.34],[740,.51]]:[[1047,0],[1319,.13]];
+      notes.forEach(function(n){var o=actx.createOscillator(),g=actx.createGain(),t0=actx.currentTime+n[1];
+        o.type=loud?'square':'sine';o.frequency.value=n[0];g.gain.setValueAtTime(0.0001,t0);
+        g.gain.exponentialRampToValueAtTime(loud?0.35:0.25,t0+0.02);g.gain.exponentialRampToValueAtTime(0.0001,t0+(loud?0.15:0.38));
+        o.connect(g);g.connect(actx.destination);o.start(t0);o.stop(t0+0.42)})}catch(e){}}
+  document.addEventListener('pointerdown',function(){try{if(actx&&actx.state==='suspended')actx.resume()}catch(e){}},{passive:true});
+  function toast(it){
+    var box=document.getElementById('ntoasts');if(!box)return;var d=document.createElement('a');
+    d.className='ntoast'+(it.important?' imp':'');d.href=it.url||'#';
+    d.innerHTML='<b>'+esc(it.title)+'</b><span>'+esc(it.body).replace(/\n/g,'<br>')+'</span><i>✕</i>';
+    d.querySelector('i').onclick=function(e){e.preventDefault();d.remove()};
+    box.appendChild(d);setTimeout(function(){d.classList.add('out');setTimeout(function(){d.remove()},400)},it.important?15000:8000);
+  }
+  function pop(it){
+    if(T){T.invoke('notify',{title:it.title,body:it.body,important:!!it.important,sound:cfg.sound,loud:cfg.loud}).catch(function(){toast(it);tone(it.important)})}
+    else{toast(it);tone(it.important)}
+  }
+  window.nbTestAlert=function(){pop({title:'Test notification',body:'Notifications are working on this computer.',url:'#'});
+    setTimeout(function(){pop({title:'⚠️ Test important alert',body:'This is how important alerts look and sound.',important:true,url:'#'})},2500)};
+  function render(){
+    var read=load(KR)||[],unread=items.filter(function(i){return read.indexOf(i.id)<0});
+    var c=document.getElementById('ncount');if(c){c.hidden=!unread.length;c.textContent=unread.length>9?'9+':unread.length}
+    var l=document.getElementById('nlist');if(!l)return;
+    if(!items.length){l.innerHTML='<div class="nempty">No notifications right now.</div>';return}
+    l.innerHTML=items.map(function(i){return '<a class="nitem'+(read.indexOf(i.id)<0?' new':'')+(i.important?' imp':'')+'" href="'+esc(i.url)+'"><b>'+esc(i.title)+'</b><span>'+esc(i.body).replace(/\n/g,'<br>')+'</span></a>'}).join('');
+  }
+  function poll(){
+    fetch('/api/notifications',{cache:'no-store',credentials:'same-origin'}).then(function(r){return r.ok?r.json():null}).then(function(d){
+      if(!d)return;cfg.sound=d.sound;cfg.loud=d.loud;items=d.items||[];
+      var popped=load(KP),fresh;
+      if(popped===null){popped=items.map(function(i){return i.id});save(KP,popped);
+        if(items.length)pop({title:'NB Sons HR',body:'You have '+items.length+' notification(s). Click the 🔔 bell to see them.',url:'#'});}
+      else{fresh=items.filter(function(i){return popped.indexOf(i.id)<0});
+        if(fresh.length>3){pop({title:fresh.length+' new notifications',body:fresh.slice(0,3).map(function(i){return i.title}).join(' · ')+' …',important:fresh.some(function(i){return i.important}),url:'#'})}
+        else fresh.forEach(function(i,n){setTimeout(function(){pop(i)},n*1500)});
+        save(KP,popped.concat(fresh.map(function(i){return i.id})));}
+      render();
+    }).catch(function(){});
+  }
+  var btn=document.getElementById('nbtn'),panel=document.getElementById('npanel');
+  if(btn)btn.onclick=function(e){e.stopPropagation();panel.classList.toggle('on')};
+  document.addEventListener('click',function(e){if(panel&&!panel.contains(e.target))panel.classList.remove('on')});
+  var rb=document.getElementById('nread');if(rb)rb.onclick=function(){save(KR,(load(KR)||[]).concat(items.map(function(i){return i.id})));render()};
+  setTimeout(poll,2500);setInterval(poll,60000);
+})();
+</script>{% endif %}
 <script>
 function filterNav(q){q=q.toLowerCase();document.querySelectorAll('#nav a').forEach(function(a){a.style.display=a.textContent.toLowerCase().indexOf(q)>-1?'':'none'});
  document.querySelectorAll('#nav .nav-label').forEach(function(l){l.style.display=q?'none':''});}

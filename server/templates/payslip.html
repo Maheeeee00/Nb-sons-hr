@@ -14,6 +14,7 @@
 <div class="slip">
   <div class="slip-head">
     <div>
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="" style="height:54px;display:block;margin-bottom:6px">
       <h1>{{ settings.company_name }}</h1>
       {% if settings.company_address %}<div class="muted">{{ settings.company_address }}</div>{% endif %}
     </div>

@@ -140,6 +140,20 @@ fn start_server(app: &AppHandle) {
     });
 }
 
+/// Show a Windows notification (called by the HR pages from the server).
+#[tauri::command]
+fn notify(app: AppHandle, title: String, body: String, important: bool, sound: bool, loud: bool) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    let title: String = title.chars().take(120).collect();
+    let body: String = body.chars().take(400).collect();
+    let mut n = app.notification().builder().title(title).body(body);
+    if sound {
+        // normal alerts: the usual Windows "ding"; important alerts: a distinct alarm tone
+        n = n.sound(if important && loud { "Alarm2" } else { "Default" });
+    }
+    n.show().map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn retry_start(app: AppHandle) {
     start_server(&app);
@@ -190,10 +204,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
         .manage(ServerChild(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![retry_start])
+        .invoke_handler(tauri::generate_handler![retry_start, notify])
         .setup(|app| {
             let handle = app.handle().clone();
             // First run: start with Windows by default (the server should always be on).

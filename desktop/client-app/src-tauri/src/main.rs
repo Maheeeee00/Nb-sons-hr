@@ -154,6 +154,20 @@ fn go_home(app: &AppHandle, query: &str) {
     }
 }
 
+/// Show a Windows notification (called by the HR pages from the server).
+#[tauri::command]
+fn notify(app: AppHandle, title: String, body: String, important: bool, sound: bool, loud: bool) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    let title: String = title.chars().take(120).collect();
+    let body: String = body.chars().take(400).collect();
+    let mut n = app.notification().builder().title(title).body(body);
+    if sound {
+        // normal alerts: the usual Windows "ding"; important alerts: a distinct alarm tone
+        n = n.sound(if important && loud { "Alarm2" } else { "Default" });
+    }
+    n.show().map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn get_saved(app: AppHandle) -> Option<String> {
     load_config(&app).server
@@ -216,6 +230,7 @@ fn main() {
                 let _ = w.set_focus();
             }
         }))
+        .plugin(tauri_plugin_notification::init())
         .manage(state)
         .menu(|app| {
             let reload = MenuItem::with_id(app, "reload", "Reload page", true, Some("F5"))?;
@@ -235,7 +250,7 @@ fn main() {
             "quit" => app.exit(0),
             _ => {}
         })
-        .invoke_handler(tauri::generate_handler![get_saved, connect, find_servers])
+        .invoke_handler(tauri::generate_handler![get_saved, connect, find_servers, notify])
         .setup(|app| {
             let handle = app.handle().clone();
             if let Some(w) = handle.get_webview_window("main") {
