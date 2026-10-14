@@ -10,7 +10,7 @@
 </nav>
 <div class="kpis">
   <div class="kpi"><span class="ki bg-a">🗄️</span><div><div class="kv2" style="font-size:20px">SQLite</div><div class="kl">Database file hr.db · {{ (db_size / 1024)|round|int }} KB</div></div></div>
-  <div class="kpi"><span class="ki bg-f">💾</span><div><div class="kv2">{{ autos|length }}</div><div class="kl">Daily auto-backups kept{% if autos %} · last {{ autos[0][5:15] }}{% endif %}</div></div></div>
+  <a class="kpi" href="{{ url_for('backups') }}"><span class="ki bg-f">💾</span><div><div class="kv2">{{ autos|length }}</div><div class="kl">Daily auto-backups kept{% if autos %} · last {{ autos[0].when.strftime('%Y-%m-%d') }}{% endif %}</div></div></a>
   <div class="kpi"><span class="ki {{ 'bg-d' if fails24 else 'bg-b' }}">🔒</span><div><div class="kv2">{{ fails24 }}</div><div class="kl">Failed sign-ins (24 h)</div></div></div>
   <div class="kpi"><span class="ki bg-c">⏱️</span><div><div class="kv2">{{ settings.idle_minutes or 30 }}<small style="font-size:14px"> min</small></div><div class="kl">Auto sign-out when idle</div></div></div>
 </div>

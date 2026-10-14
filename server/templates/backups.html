@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% macro size(n) -%}
+  {%- if n >= 1048576 -%}{{ '%.2f'|format(n / 1048576) }} MB{%- elif n >= 1024 -%}{{ (n / 1024)|round|int }} KB{%- else -%}{{ n }} B{%- endif -%}
+{%- endmacro %}
+{% block title %}Database Backups{% endblock %}
+{% block heading %}Database Backups{% endblock %}
+{% block actions %}
+  <span class="bk-upd">Updated {{ now.strftime('%I:%M %p').lstrip('0') }}</span>
+  <form method="post" enctype="multipart/form-data" class="bk-inline" id="upform">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="act" value="upload">
+    <label class="btn bk-up">📤 Upload .db<input type="file" name="file" accept=".db" hidden
+           onchange="if(this.files.length){document.getElementById('upform').submit();this.closest('label').textContent='Uploading…'}"></label>
+  </form>
+  <form method="post" class="bk-inline" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Saving backup…'">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="act" value="create">
+    <button class="btn primary bk-now">💾 Backup Now</button>
+  </form>
+{% endblock %}
+{% block content %}
+<p class="muted bk-sub">Manage and restore full copies of the HR database (employees, attendance, leaves, payroll, loans, users and settings).</p>
+
+{% if error %}<div class="flash error">⚠️ Today's automatic backup failed: {{ error }}</div>{% endif %}
+
+<div class="kpis">
+  <div class="kpi"><span class="ki bk-k1">📦</span><div><div class="kv2">{{ stats.total }}</div><div class="kl">Total Backups</div></div></div>
+  <div class="kpi"><span class="ki bk-k2">🤖</span><div><div class="kv2">{{ stats.auto }}</div><div class="kl">Auto Backups · daily, last {{ keep }} kept</div></div></div>
+  <div class="kpi"><span class="ki bk-k3">✋</span><div><div class="kv2">{{ stats.manual }}</div><div class="kl">Manual &amp; Uploaded</div></div></div>
+  <div class="kpi"><span class="ki bk-k4">📏</span><div><div class="kv2">{{ size(stats.size) }}</div><div class="kl">Total Size · live database {{ size(stats.db_size) }}</div></div></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>🗂️ Backup History</h2><span class="muted">{{ stats.total }} backup{{ '' if stats.total == 1 else 's' }}</span></div>
+  {% if items %}
+  <div class="table-wrap"><table class="bk-table">
+    <thead><tr><th>File name</th><th>Type</th><th>File size</th><th>Date &amp; time</th><th>Age</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for b in items %}
+      <tr>
+        <td><code class="bk-name">{{ b.name }}</code></td>
+        <td><span class="bk-type bk-{{ b.kind }}">{{ {'auto': '🤖', 'manual': '✋', 'upload': '📤', 'before-restore': '🛟'}[b.kind] }} {{ b.label }}</span></td>
+        <td class="bk-size">{{ size(b.size) }}</td>
+        <td>{{ b.when.strftime('%b %d, %Y, %I:%M %p') }}</td>
+        <td class="muted">{{ b.age }}</td>
+        <td><div class="btns">
+          <a class="btn sm bk-dl" href="{{ url_for('backup_download', name=b.name) }}">⬇ Download</a>
+          <form method="post" action="{{ url_for('backup_restore', name=b.name) }}" class="bk-inline"
+                onsubmit="return confirm('Restore all data from this backup?\n\n{{ b.name }}\n\nAll current data will be replaced with the data in this backup. Your current data is saved first as a Safety copy, so this can be undone. Everyone will need to sign in again.')">
+            <input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="btn sm ok">↺ Restore</button></form>
+          <form method="post" action="{{ url_for('backup_delete', name=b.name) }}" class="bk-inline"
+                onsubmit="return confirm('Delete this backup permanently?\n\n{{ b.name }}')">
+            <input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="btn sm danger">🗑 Delete</button></form>
+        </div></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">No backups yet. Click <b>Backup Now</b> to save the first one.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>ℹ️ How backups work</h2></div>
+  <ul class="tips" style="margin:0;columns:2;column-gap:28px">
+    <li><b>Backup Now</b> saves a full copy of all data instantly. Take one before big changes (payroll, imports).</li>
+    <li>An <b>Auto</b> backup is saved every day by itself; the last {{ keep }} are kept.</li>
+    <li><b>Download</b> a backup and keep it on a USB drive or Google Drive in case this PC is lost or damaged.</li>
+    <li><b>Upload .db</b> brings a backup file from another PC or USB into this list. Then click <b>Restore</b> on it.</li>
+    <li><b>Restore</b> replaces all current data with that backup. Your data from before is saved first as a <b>Safety copy</b>.</li>
+    <li>Backups are stored on the server PC in <code>Documents\NB Sons HR Data\backups</code>.</li>
+  </ul>
+</div>
+{% endblock %}

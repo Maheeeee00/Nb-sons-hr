@@ -56,8 +56,8 @@
 
 <div class="card">
   <div class="card-head"><h2>Backup</h2></div>
-  <p class="muted" style="margin-top:0">All data is stored in one file, <code>hr.db</code>, next to the program. Download a backup regularly and keep it on a USB drive or another PC. A copy is also saved in the <code>backups</code> folder.</p>
-  <a class="btn" href="{{ url_for('backup') }}">Download backup now</a>
+  <p class="muted" style="margin-top:0">All data is stored in one file, <code>hr.db</code>, in the data folder on the server PC. A full copy is saved automatically every day. Open <b>Database Backups</b> to take a backup now, download one to a USB drive, or restore an older copy.</p>
+  <a class="btn primary" href="{{ url_for('backups') }}">💾 Open Database Backups</a>
 </div>
 <form method="post" class="card" id="notify">
   {{ csrf() }}<input type="hidden" name="form" value="notify">

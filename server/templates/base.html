@@ -136,7 +136,7 @@
         {{ nav('roles_page', '🛡️', 'Roles & Permissions') }}
         {{ nav('activity', '🕵️', 'Activity Log') }}
         {% endif %}
-        {% if can('backup') %}<a href="{{ url_for('backup') }}"><span class="ic">💾</span><span class="tx">Download Backup</span></a>{% endif %}
+        {% if can('backup') %}{{ nav('backups', '💾', 'Database Backups') }}{% endif %}
       {% endif %}
       <div class="nav-label">Account</div>
       {{ nav('change_password', '🔑', 'Change Password') }}

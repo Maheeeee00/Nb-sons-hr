@@ -525,3 +525,24 @@ tr.warnrow td{background:#fff1f2}
 .logo.logo-img,.ologo.logo-img{background:#fff!important;padding:3px;overflow:hidden}
 .logo.logo-img img,.ologo.logo-img img{width:100%;height:100%;object-fit:contain;display:block}
 .login-logo{display:block;width:100%;max-width:260px;height:auto;margin:0 0 14px}
+
+/* ---- Database Backups ---- */
+.bk-inline{display:inline;margin:0}
+.bk-upd{color:#64748b;font-size:12.5px;align-self:center;margin-right:4px}
+.bk-up{border-color:var(--accent);color:var(--accent);font-weight:700}
+.bk-now{box-shadow:0 6px 16px rgba(15,42,68,.18)}
+.bk-sub{margin:-6px 0 16px}
+.bk-k1{background:#fdf0dc}.bk-k2{background:#dcf7ea}.bk-k3{background:#ece9fe}.bk-k4{background:#fdf3c4}
+.bk-table td{vertical-align:middle}
+.bk-name{font-size:12.5px;font-weight:700;background:none;padding:0;color:#0f1f33}
+.bk-size{font-weight:700;color:#0e7c86;white-space:nowrap}
+.bk-type{display:inline-block;font-size:12px;font-weight:700;padding:2px 10px;border-radius:20px;white-space:nowrap}
+.bk-auto{background:#dcf7ea;color:#047857}
+.bk-manual{background:#e0ecff;color:#1d4ed8}
+.bk-upload{background:#ece9fe;color:#6d28d9}
+.bk-before-restore{background:#fef3c7;color:#92400e}
+.bk-dl{background:#e8f0ff;border-color:#c7d7fb;color:#1d4ed8}
+.bk-table .btn.ok{background:#e7f8ef}
+.bk-table .btn.danger{background:#fdeeee}
+.bk-table .btns{flex-wrap:nowrap}
+.bk-table .btn.sm{padding:4px 8px}.bk-table td,.bk-table th{padding-left:8px;padding-right:8px}.bk-table td:nth-child(4){white-space:nowrap}

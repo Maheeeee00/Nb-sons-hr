@@ -3,6 +3,7 @@ Company HR System - runs on one office PC, used by everyone on the LAN via brows
 Features: employees, departments, attendance, leave management, payroll & payslips.
 """
 import os
+import re
 import csv
 import io
 import socket
@@ -17,7 +18,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -43,7 +44,7 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=10)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 MAX_FAILS, LOCK_MINUTES, AUTO_BACKUPS_KEEP = 5, 15, 30
-app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024
 
 ATT_STATUSES = ["present", "late", "half_day", "absent", "leave"]
 ATT_CODES = {"present": "P", "late": "L", "half_day": "H", "absent": "A", "leave": "LV"}
@@ -451,26 +452,75 @@ def _before():
 
 
 _last_auto = {"day": None}
+BACKUP_KINDS = {"auto": "Auto", "manual": "Manual", "upload": "Uploaded", "before-restore": "Safety copy"}
+_BK_NEW = re.compile(r"^backup-(\d{4})-(\d\d)-(\d\d)-(\d\d)-(\d\d)-(\d\d)-([a-z-]+\d*)\.db$")
+_BK_OLD = re.compile(r"^(?:old-)?hr-backup-(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)(\d\d)\.db$")
+_BK_SAFE = re.compile(r"^[A-Za-z0-9._-]{1,120}\.db$")
+
+
+def make_backup(kind="manual"):
+    """Copy the whole live database into backups/backup-YYYY-MM-DD-HH-MM-SS-<kind>.db and return the file name."""
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    stamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    name = f"backup-{stamp}-{kind}.db"
+    n = 1
+    while os.path.exists(os.path.join(BACKUP_DIR, name)):
+        n += 1
+        name = f"backup-{stamp}-{kind}{n}.db"
+    src = sqlite3.connect(DB_PATH, timeout=30)
+    dest = sqlite3.connect(os.path.join(BACKUP_DIR, name))
+    src.backup(dest)
+    dest.close()
+    src.close()
+    return name
+
+
+def backup_info(name):
+    """Type, date/time and size of one backup file."""
+    path = os.path.join(BACKUP_DIR, name)
+    st = os.stat(path)
+    when, kind = None, "manual"
+    m = _BK_NEW.match(name)
+    if m:
+        when = datetime(*map(int, m.groups()[:6]))
+        kind = re.sub(r"\d+$", "", m.group(7))
+    else:
+        m = _BK_OLD.match(name)
+        if m:
+            when = datetime(*map(int, m.groups()))
+        elif name.startswith("auto-"):
+            kind = "auto"
+    when = when or datetime.fromtimestamp(st.st_mtime)
+    return {"name": name, "kind": kind if kind in BACKUP_KINDS else "manual", "size": st.st_size, "when": when}
+
+
+def list_backups():
+    if not os.path.isdir(BACKUP_DIR):
+        return []
+    out = []
+    for f in os.listdir(BACKUP_DIR):
+        if f.endswith(".db") and _BK_SAFE.match(f) and os.path.isfile(os.path.join(BACKUP_DIR, f)):
+            try:
+                out.append(backup_info(f))
+            except OSError:
+                pass
+    return sorted(out, key=lambda b: b["when"], reverse=True)
 
 
 def auto_backup():
-    """Once a day, copy the whole database into backups/auto-YYYY-MM-DD.db and keep the last 30."""
+    """Once a day, save a full copy of the database (type Auto) and keep the last 30 automatic copies."""
     day = date.today().isoformat()
     if _last_auto["day"] == day:
         return
     _last_auto["day"] = day
     try:
-        os.makedirs(BACKUP_DIR, exist_ok=True)
-        path = os.path.join(BACKUP_DIR, f"auto-{day}.db")
-        if not os.path.exists(path):
-            src = sqlite3.connect(DB_PATH)
-            dest = sqlite3.connect(path)
-            src.backup(dest)
-            dest.close()
-            src.close()
-        autos = sorted(f for f in os.listdir(BACKUP_DIR) if f.startswith("auto-") and f.endswith(".db"))
-        for old in autos[:-AUTO_BACKUPS_KEEP]:
-            os.remove(os.path.join(BACKUP_DIR, old))
+        backups = list_backups()
+        autos = [b for b in backups if b["kind"] == "auto"]
+        if not any(b["when"].date() == date.today() for b in autos):
+            make_backup("auto")
+            autos = [b for b in list_backups() if b["kind"] == "auto"]
+        for old in autos[AUTO_BACKUPS_KEEP:]:
+            os.remove(os.path.join(BACKUP_DIR, old["name"]))
         _last_auto["error"] = None
     except Exception as e:                                       # noqa: BLE001 - never block the app
         _last_auto["error"] = str(e)[:200]
@@ -520,7 +570,7 @@ def _after(resp):
         resp.headers["Cache-Control"] = "no-store"             # don't keep HR data in the browser cache
     try:
         if request.method == "POST" and g.get("user") and resp.status_code < 400 and \
-                request.endpoint not in ("login", "logout", "checkin", "checkout"):
+                request.endpoint not in ("login", "logout", "checkin", "checkout", "backups", "backup_restore", "backup_delete"):
             name = AUDIT_NAMES.get(request.endpoint, request.endpoint or "?")
             bits = [f"{k}={v}" for k, v in request.form.items() if k not in _SKIP_FIELDS and v and len(v) < 60][:8]
             ids = ", ".join(f"{k} {v}" for k, v in (request.view_args or {}).items())
@@ -2642,7 +2692,7 @@ def activity():
     users_ = [r["username"] for r in q("SELECT DISTINCT username FROM audit_log WHERE username<>'' ORDER BY username")]
     fails24 = q("""SELECT COUNT(*) c FROM audit_log WHERE action IN ('Failed login','Account locked','Login blocked (locked)')
                    AND at>=?""", ((datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),), one=True)["c"]
-    autos = sorted((f for f in os.listdir(BACKUP_DIR) if f.startswith("auto-")), reverse=True) if os.path.isdir(BACKUP_DIR) else []
+    autos = [b for b in list_backups() if b["kind"] == "auto"]
     return render_template("activity.html", rows=rows, users_=users_, who=who, day=day, kind=kind, fails24=fails24,
                            autos=autos, db_size=os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0)
 
@@ -2800,16 +2850,142 @@ def roles_page():
     return render_template("roles.html", roles=roles, groups=groups, role_perms=role_perms)
 
 
+REQUIRED_TABLES = {"employees", "users", "settings", "departments"}
+
+
+def check_backup_file(path):
+    """Return None if the file is a usable NB Sons HR database, otherwise a reason it isn't."""
+    try:
+        with open(path, "rb") as f:
+            if f.read(16) != b"SQLite format 3\x00":
+                return "This is not a database (.db) file from the HR system."
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            if con.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                return "This database file is damaged."
+            tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            con.close()
+        if not REQUIRED_TABLES <= tables:
+            return "This database is not from the NB Sons HR system."
+    except sqlite3.Error as e:
+        return f"The file could not be read ({e})."
+    return None
+
+
+def backup_path(name):
+    """Full path of an existing backup, or 404 (never allows paths outside the backups folder)."""
+    if not _BK_SAFE.match(name or "") or not os.path.isfile(os.path.join(BACKUP_DIR, name)):
+        abort(404)
+    return os.path.join(BACKUP_DIR, name)
+
+
+@app.route("/backups", methods=["GET", "POST"])
+@perm_required("backup")
+def backups():
+    if request.method == "POST":
+        act = request.form.get("act")
+        if act == "create":
+            try:
+                name = make_backup("manual")
+                audit("Created backup", name)
+                flash(f"Backup saved: {name}", "ok")
+            except Exception as e:                               # noqa: BLE001
+                flash(f"Backup failed: {e}", "error")
+        elif act == "upload":
+            f = request.files.get("file")
+            if not f or not f.filename:
+                flash("Choose a .db backup file to upload.", "error")
+                return redirect(url_for("backups"))
+            if not f.filename.lower().endswith(".db"):
+                flash("Only .db backup files can be uploaded.", "error")
+                return redirect(url_for("backups"))
+            os.makedirs(BACKUP_DIR, exist_ok=True)
+            tmp = os.path.join(BACKUP_DIR, f".upload-{secrets.token_hex(6)}.tmp")
+            f.save(tmp)
+            problem = check_backup_file(tmp)
+            if problem:
+                os.remove(tmp)
+                flash(problem, "error")
+                return redirect(url_for("backups"))
+            name = f"backup-{datetime.now():%Y-%m-%d-%H-%M-%S}-upload.db"
+            os.replace(tmp, os.path.join(BACKUP_DIR, name))
+            audit("Uploaded backup", f"{f.filename} → {name}")
+            flash(f"Backup uploaded: {name}. Click Restore on it to load its data.", "ok")
+        return redirect(url_for("backups"))
+    items = list_backups()
+    for b in items:
+        b["label"] = BACKUP_KINDS[b["kind"]]
+        secs = (datetime.now() - b["when"]).total_seconds()
+        b["age"] = ("just now" if secs < 60 else f"{int(secs // 60)} min ago" if secs < 3600 else
+                    f"{int(secs // 3600)} hr ago" if secs < 86400 else
+                    "1 day ago" if secs < 172800 else f"{int(secs // 86400)} days ago")
+    stats = {
+        "total": len(items),
+        "auto": sum(b["kind"] == "auto" for b in items),
+        "manual": sum(b["kind"] != "auto" for b in items),
+        "size": sum(b["size"] for b in items),
+        "db_size": os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0,
+    }
+    return render_template("backups.html", items=items, stats=stats, now=datetime.now(),
+                           error=_last_auto.get("error"), keep=AUTO_BACKUPS_KEEP)
+
+
+@app.route("/backups/<name>/download")
+@perm_required("backup")
+def backup_download(name):
+    path = backup_path(name)
+    audit("Downloaded backup", name)
+    return send_file(path, as_attachment=True, download_name=name)
+
+
+@app.route("/backups/<name>/restore", methods=["POST"])
+@perm_required("backup")
+def backup_restore(name):
+    path = backup_path(name)
+    problem = check_backup_file(path)
+    if problem:
+        flash(f"Can't restore {name}: {problem}", "error")
+        return redirect(url_for("backups"))
+    who = g.user["username"]
+    try:
+        safety = make_backup("before-restore")          # so the restore itself can be undone
+        con = g.pop("db", None)
+        if con is not None:
+            con.close()
+        src = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        dest = sqlite3.connect(DB_PATH, timeout=30)
+        src.backup(dest)
+        dest.close()
+        src.close()
+        init_db()                                        # bring older backups up to date
+    except Exception as e:                               # noqa: BLE001
+        flash(f"Restore failed – nothing was changed: {e}", "error")
+        return redirect(url_for("backups"))
+    audit("Restored backup", f"{name} (previous data saved as {safety})", user=who)
+    token = session.get("csrf")
+    session.clear()
+    session["csrf"] = token or secrets.token_hex(16)
+    flash(f"Data restored from {name}. Please sign in again. Your data from before the restore was saved as {safety}.", "ok")
+    return redirect(url_for("login"))
+
+
+@app.route("/backups/<name>/delete", methods=["POST"])
+@perm_required("backup")
+def backup_delete(name):
+    path = backup_path(name)
+    os.remove(path)
+    audit("Deleted backup", name)
+    flash(f"Backup deleted: {name}", "ok")
+    return redirect(url_for("backups"))
+
+
 @app.route("/backup")
 @perm_required("backup")
 def backup():
-    os.makedirs(BACKUP_DIR, exist_ok=True)
-    path = os.path.join(BACKUP_DIR, f"hr-backup-{datetime.now():%Y%m%d-%H%M%S}.db")
-    dest = sqlite3.connect(path)
-    db().backup(dest)
-    dest.close()
-    return send_file(path, as_attachment=True, download_name=os.path.basename(path))
-
+    """Old link: take a backup now and download it."""
+    name = make_backup("manual")
+    return send_file(os.path.join(BACKUP_DIR, name), as_attachment=True, download_name=name)
 
 
 # --------------------------------------------------------------------------- assets
