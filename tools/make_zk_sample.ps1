@@ -1,10 +1,22 @@
+try {
 # Builds a ZKTime 5.0 style att2000.mdb (Access 2000 / Jet 4) with fake people and punches, for testing.
 $ErrorActionPreference = "Stop"
-$p = Join-Path $env:GITHUB_WORKSPACE "att2000.mdb"
-if (Test-Path $p) { Remove-Item $p }
-$prov = "Microsoft.Jet.OLEDB.4.0"
-$cat = New-Object -ComObject ADOX.Catalog
-$cat.Create("Provider=$prov;Data Source=$p;Jet OLEDB:Engine Type=5") | Out-Null
+$out = Join-Path $env:GITHUB_WORKSPACE "zk-out"
+New-Item -ItemType Directory -Force $out | Out-Null
+$log = Join-Path $out "log.txt"
+"PowerShell $([IntPtr]::Size * 8)-bit on $([Environment]::OSVersion.VersionString)" | Out-File $log
+$p = Join-Path $out "att2000.mdb"
+$prov = $null
+foreach ($cand in @("Microsoft.Jet.OLEDB.4.0", "Microsoft.ACE.OLEDB.12.0", "Microsoft.ACE.OLEDB.16.0")) {
+  try {
+    if (Test-Path $p) { Remove-Item $p }
+    $cat = New-Object -ComObject ADOX.Catalog
+    $extra = if ($cand -like "*Jet*") { ";Jet OLEDB:Engine Type=5" } else { ";Jet OLEDB:Engine Type=5" }
+    $cat.Create("Provider=$cand;Data Source=$p$extra") | Out-Null
+    $prov = $cand; "Created with $cand" | Out-File $log -Append; break
+  } catch { "Provider $cand failed: $($_.Exception.Message)" | Out-File $log -Append }
+}
+if (-not $prov) { throw "No Access provider available" }
 $cn = New-Object -ComObject ADODB.Connection
 $cn.Open("Provider=$prov;Data Source=$p")
 $cn.Execute("CREATE TABLE DEPARTMENTS (DEPTID COUNTER PRIMARY KEY, DEPTNAME VARCHAR(30), SUPDEPTID INTEGER)") | Out-Null
@@ -40,4 +52,7 @@ for ($d = 20; $d -ge 0; $d--) {
   }
 }
 $cn.Close()
+"att2000.mdb created with $($people.Count) people and $n punches ($((Get-Item $p).Length) bytes) using $prov" | Out-File $log -Append
 Write-Host "att2000.mdb created with $($people.Count) people and $n punches ($((Get-Item $p).Length) bytes)"
+
+} catch { "ERROR: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)" | Out-File (Join-Path $env:GITHUB_WORKSPACE 'zk-out\log.txt') -Append; exit 1 }

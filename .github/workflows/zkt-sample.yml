@@ -2,15 +2,32 @@ name: Make ZKT sample database
 on:
   push:
     branches: [zkt-sample]
+permissions:
+  contents: write
 jobs:
   make:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build att2000.mdb with Microsoft Jet (32-bit)
+      - name: Build att2000.mdb (32-bit Jet)
+        id: jet32
+        continue-on-error: true
         shell: cmd
         run: C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\make_zk_sample.ps1
-      - uses: actions/upload-artifact@v4
-        with:
-          name: zk-sample
-          path: att2000.mdb
+      - name: Build att2000.mdb (64-bit ACE) if 32-bit failed
+        if: steps.jet32.outcome == 'failure'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Copy-Item zk-out\log.txt zk-out\log-32bit.txt -ErrorAction SilentlyContinue
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\make_zk_sample.ps1
+      - name: Save results to branch zkt-sample-out
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "zk-sample-bot"; git config user.email "noreply@github.com"
+          git checkout --orphan zkt-sample-out
+          git rm -rf --cached . >/dev/null
+          git add -f zk-out
+          git commit -m "ZKT sample output"
+          git push -f origin zkt-sample-out
