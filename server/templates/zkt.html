@@ -1,9 +1,8 @@
 {% extends "base.html" %}
-{% from "_att_tabs.html" import att_tabs %}
-{% block title %}ZKT Machine Link{% endblock %}
-{% block heading %}ZKT Machine Link{% endblock %}
+{% block title %}ZKT Biometric{% endblock %}
+{% block heading %}ZKT Biometric{% endblock %}
 {% block content %}
-{{ att_tabs('zkt') }}
+<p class="muted" style="margin-top:-6px">Connect the ZKT attendance software once – punches then flow into Attendance automatically every 5 minutes.</p>
 {% set on = s.zkt_on == '1' %}
 <div class="kpis">
   <div class="kpi"><span class="ki {{ 'bk-k2' if on else 'bk-k1' }}">{{ '🟢' if on else '⚪' }}</span><div><div class="kv2" style="font-size:20px">{{ 'Connected' if on else 'Not connected' }}</div><div class="kl">{{ 'Syncs every 5 minutes' if on else 'Click Find ZKT to start' }}</div></div></div>

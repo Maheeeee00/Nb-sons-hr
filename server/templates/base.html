@@ -87,7 +87,7 @@
       {% endif %}
       {% if can('attendance.view', 'attendance.manage', 'leaves.view', 'leaves.approve') %}<div class="nav-label">Time & Attendance</div>{% endif %}
       {% if can('attendance.view', 'attendance.manage') %}
-        {% set att_eps = ['attendance', 'attendance_report', 'attendance_manage', 'attendance_import', 'zkt_page'] %}
+        {% set att_eps = ['attendance', 'attendance_report', 'attendance_manage', 'attendance_import'] %}
         <details class="navgroup" {{ 'open' if request.endpoint in att_eps }}>
           <summary class="{{ 'active' if request.endpoint in att_eps }}"><span class="ic">✅</span><span class="tx">Attendance</span><span class="chev">›</span></summary>
           <div class="sub">
@@ -95,12 +95,12 @@
             {{ nav('attendance', '•', 'Daily Attendance') }}
             {{ nav('attendance_manage', '•', 'Manage Attendance') }}
             {{ nav('attendance_import', '•', 'Import Attendance') }}
-            {{ nav('zkt_page', '•', 'ZKT Machine Link') }}
             {% endif %}
             {{ nav('attendance_report', '•', 'Monthly Report') }}
           </div>
         </details>
       {% endif %}
+      {% if can('attendance.manage') %}{{ nav('zkt_page', '👆', 'ZKT Biometric') }}{% endif %}
       {% if can('leaves.view', 'leaves.approve') %}
         {{ nav('leaves', '🌴', 'Leaves', ('<span class="pill">%d</span>' % pending_leaves) if pending_leaves else '') }}
       {% endif %}
