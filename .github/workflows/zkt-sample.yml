@@ -1,0 +1,16 @@
+name: Make ZKT sample database
+on:
+  push:
+    branches: [zkt-sample]
+jobs:
+  make:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build att2000.mdb with Microsoft Jet (32-bit)
+        shell: cmd
+        run: C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\make_zk_sample.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zk-sample
+          path: att2000.mdb
