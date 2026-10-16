@@ -3,6 +3,7 @@
   <a href="{{ url_for('attendance') }}" class="{{ 'on' if active == 'daily' }}"><span>✅</span> Daily Attendance</a>
   <a href="{{ url_for('attendance_manage') }}" class="{{ 'on' if active == 'manage' }}"><span>🛠️</span> Manage Attendance</a>
   <a href="{{ url_for('attendance_import') }}" class="{{ 'on' if active == 'import' }}"><span>📤</span> Import Attendance</a>
+  <a href="{{ url_for('zkt_page') }}" class="{{ 'on' if active == 'zkt' }}"><span>👆</span> ZKT Machine Link</a>
   <a href="{{ url_for('attendance_report') }}" class="{{ 'on' if active == 'report' }}"><span>📊</span> Monthly Report</a>
 </nav>
 {% endmacro %}

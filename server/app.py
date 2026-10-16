@@ -4,6 +4,8 @@ Features: employees, departments, attendance, leave management, payroll & paysli
 """
 import os
 import re
+import time
+import threading
 import csv
 import io
 import socket
@@ -71,6 +73,8 @@ CREATE TABLE IF NOT EXISTS attendance(
   id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
   date TEXT NOT NULL, status TEXT NOT NULL, check_in TEXT, check_out TEXT, note TEXT,
   UNIQUE(employee_id, date));
+CREATE TABLE IF NOT EXISTS zkt_punches(
+  badge TEXT NOT NULL, punch_time TEXT NOT NULL, PRIMARY KEY(badge, punch_time));
 CREATE TABLE IF NOT EXISTS leave_types(
   id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL COLLATE NOCASE,
   days_per_year INTEGER DEFAULT 0, paid INTEGER DEFAULT 1);
@@ -120,6 +124,7 @@ CREATE INDEX IF NOT EXISTS idx_pay_month ON payroll(month);
 """
 
 DEFAULT_SETTINGS = {
+    "zkt_on": "0", "zkt_path": "", "zkt_from": "", "zkt_last": "", "zkt_err": "", "zkt_mtime": "",
     "company_name": "My Company",
     "company_address": "",
     "currency": "PKR",
@@ -449,6 +454,7 @@ def _before():
                 return redirect(url_for("login", next=request.path if request.method == "GET" else None))
             session["seen"] = now
     auto_backup()
+    start_zkt_thread()
 
 
 _last_auto = {"day": None}
@@ -2986,6 +2992,139 @@ def backup():
     """Old link: take a backup now and download it."""
     name = make_backup("manual")
     return send_file(os.path.join(BACKUP_DIR, name), as_attachment=True, download_name=name)
+
+
+# --------------------------------------------------------------------------- ZKT biometric link
+_zkt_lock = threading.Lock()
+_zkt_thread = {"on": False}
+
+
+def _set(k, v):
+    con = sqlite3.connect(DB_PATH, timeout=30)
+    con.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, str(v)))
+    con.commit()
+    con.close()
+
+
+def zkt_sync(force=False):
+    """Read new punches from ZKT and update attendance. Returns a short result text."""
+    import zkt_reader
+    with _zkt_lock:
+        con0 = sqlite3.connect(DB_PATH, timeout=30)
+        s = dict(con0.execute("SELECT key, value FROM settings WHERE key LIKE 'zkt_%'").fetchall())
+        con0.close()
+        path = s.get("zkt_path") or ""
+        try:
+            mtime = str(os.path.getmtime(path))
+            if not force and mtime == s.get("zkt_mtime"):
+                _set("zkt_last", datetime.now().strftime("%Y-%m-%d %H:%M"))
+                return "No new punches."
+            people, punches = zkt_reader.read_mdb(path)
+        except Exception as e:                                   # noqa: BLE001
+            _set("zkt_err", f"Can't read ZKT data: {e}")
+            return f"Can't read ZKT data: {e}"
+        since = s.get("zkt_from") or date.today().replace(day=1).isoformat()
+        match = _employee_matcher()
+        emp_of = {}
+        for b, n in people.items():
+            m = match(b, n, None)[0]
+            emp_of[b] = m["id"] if m else None
+        con = db()
+        new_days = set()
+        for badge, t in punches:
+            if t[:10] < since:
+                continue
+            if con.execute("INSERT OR IGNORE INTO zkt_punches(badge,punch_time) VALUES(?,?)", (badge, t)).rowcount:
+                new_days.add((badge, t[:10]))
+        updated = 0
+        for badge, day in new_days:
+            eid = emp_of.get(badge)
+            if not eid:
+                continue
+            times = sorted(r[0][11:16] for r in con.execute(
+                "SELECT punch_time FROM zkt_punches WHERE badge=? AND substr(punch_time,1,10)=?", (badge, day)))
+            cin = times[0]
+            last = times[-1]
+            gap = (datetime.strptime(last, "%H:%M") - datetime.strptime(cin, "%H:%M")).seconds
+            cout = last if gap >= 30 * 60 else None                   # ignore double presses at the door
+            ex = con.execute("SELECT status FROM attendance WHERE employee_id=? AND date=?", (eid, day)).fetchone()
+            if ex and ex[0] == "leave":
+                continue                                              # don't overwrite approved leave
+            con.execute("""INSERT INTO attendance(employee_id,date,status,check_in,check_out,note) VALUES(?,?,?,?,?,'ZKT')
+                           ON CONFLICT(employee_id,date) DO UPDATE SET status=excluded.status,
+                           check_in=excluded.check_in, check_out=excluded.check_out""",
+                        (eid, day, _status_from_time(cin), cin, cout))
+            updated += 1
+        con.commit()
+        _set("zkt_mtime", mtime)
+        _set("zkt_err", "")
+        _set("zkt_last", datetime.now().strftime("%Y-%m-%d %H:%M"))
+        return f"{len(new_days)} new punch-day(s), {updated} attendance record(s) updated."
+
+
+def _zkt_loop():
+    while True:
+        time.sleep(300)                                              # every 5 minutes
+        try:
+            with app.app_context():
+                if (q("SELECT value FROM settings WHERE key='zkt_on'", one=True) or {"value": ""})["value"] == "1":
+                    zkt_sync()
+        except Exception as e:                                       # noqa: BLE001
+            print("ZKT sync failed:", e)
+
+
+def start_zkt_thread():
+    if not _zkt_thread["on"]:
+        _zkt_thread["on"] = True
+        threading.Thread(target=_zkt_loop, daemon=True).start()
+
+
+@app.route("/attendance/zkt", methods=["GET", "POST"])
+@perm_required("attendance.manage")
+def zkt_page():
+    import zkt_reader
+    found = None
+    if request.method == "POST":
+        act = request.form.get("act")
+        if act == "find":
+            found = zkt_reader.find_mdb([d for d in os.environ.get("HR_ZKT_DIRS", "").split(os.pathsep) if d])
+            if not found:
+                flash("ZKT database not found on this PC. Install the HR server on the PC that has the ZKT software, "
+                      "or type the path of att2000.mdb below.", "error")
+        elif act == "connect":
+            path = request.form.get("path", "").strip().strip('"')
+            try:
+                zkt_reader.read_mdb(path)
+            except Exception as e:                                   # noqa: BLE001
+                flash(f"Can't open this ZKT database: {e}", "error")
+                return redirect(url_for("zkt_page"))
+            for k, v in (("zkt_path", path), ("zkt_on", "1"), ("zkt_mtime", ""),
+                         ("zkt_from", request.form.get("since") or date.today().replace(day=1).isoformat())):
+                _set(k, v)
+            audit("Connected ZKT", path)
+            flash("ZKT connected. " + zkt_sync(force=True), "ok")
+        elif act == "sync":
+            flash(zkt_sync(force=True), "ok")
+        elif act == "off":
+            _set("zkt_on", "0")
+            audit("Disconnected ZKT", "")
+            flash("ZKT link turned off. Attendance already imported stays.", "ok")
+        if act != "find" or not found:
+            return redirect(url_for("zkt_page"))
+    s = dict(get_settings())
+    s.update({r["key"]: r["value"] for r in q("SELECT key, value FROM settings WHERE key LIKE 'zkt_%'")})
+    people, unmatched = {}, []
+    if s.get("zkt_on") == "1" and s.get("zkt_path"):
+        try:
+            people, _ = zkt_reader.read_mdb(s["zkt_path"])
+        except Exception:                                            # noqa: BLE001
+            people = {}
+        match = _employee_matcher()
+        unmatched = [(b, n) for b, n in sorted(people.items()) if not match(b, n, None)[0]]
+    recent = q("""SELECT p.badge, p.punch_time FROM zkt_punches p ORDER BY p.punch_time DESC LIMIT 15""")
+    return render_template("zkt.html", s=s, found=found, people=people, unmatched=unmatched, recent=recent,
+                           punches=q("SELECT COUNT(*) c FROM zkt_punches", one=True)["c"],
+                           month1=date.today().replace(day=1).isoformat())
 
 
 # --------------------------------------------------------------------------- assets

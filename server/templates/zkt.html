@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% from "_att_tabs.html" import att_tabs %}
+{% block title %}ZKT Machine Link{% endblock %}
+{% block heading %}ZKT Machine Link{% endblock %}
+{% block content %}
+{{ att_tabs('zkt') }}
+{% set on = s.zkt_on == '1' %}
+<div class="kpis">
+  <div class="kpi"><span class="ki {{ 'bk-k2' if on else 'bk-k1' }}">{{ '🟢' if on else '⚪' }}</span><div><div class="kv2" style="font-size:20px">{{ 'Connected' if on else 'Not connected' }}</div><div class="kl">{{ 'Syncs every 5 minutes' if on else 'Click Find ZKT to start' }}</div></div></div>
+  <div class="kpi"><span class="ki bk-k4">🕒</span><div><div class="kv2" style="font-size:20px">{{ s.zkt_last or '—' }}</div><div class="kl">Last sync</div></div></div>
+  <div class="kpi"><span class="ki bk-k3">👆</span><div><div class="kv2">{{ punches }}</div><div class="kl">Punches imported</div></div></div>
+  <div class="kpi"><span class="ki {{ 'bg-d' if unmatched else 'bk-k2' }}">👥</span><div><div class="kv2">{{ people|length - unmatched|length }}/{{ people|length }}</div><div class="kl">ZKT people matched</div></div></div>
+</div>
+{% if s.zkt_err %}<div class="flash error">⚠️ {{ s.zkt_err }}</div>{% endif %}
+
+{% if on %}
+<div class="card">
+  <div class="card-head"><h2>🔗 Connected to ZKT</h2></div>
+  <p class="muted" style="margin-top:0">Reading <code>{{ s.zkt_path }}</code> · punches from {{ s.zkt_from }} onwards. First punch of the day = check-in, last = check-out; late is worked out from office start + grace time.</p>
+  <div class="btns">
+    <form method="post" class="bk-inline"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="act" value="sync"><button class="btn primary">🔄 Sync now</button></form>
+    <form method="post" class="bk-inline" onsubmit="return confirm('Turn off the ZKT link?')"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="act" value="off"><button class="btn danger">Turn off</button></form>
+  </div>
+</div>
+{% if unmatched %}
+<div class="card">
+  <div class="card-head"><h2>⚠️ ZKT people not matched to an employee ({{ unmatched|length }})</h2></div>
+  <p class="muted" style="margin-top:0">Their punches are kept but not added to attendance. Fix: set the employee's <b>Employee Code</b> to the ZKT number (e.g. 101 or EMP-0101), or make the name match. Then click Sync now.</p>
+  <div class="table-wrap"><table><thead><tr><th>ZKT No.</th><th>Name in ZKT</th></tr></thead><tbody>
+  {% for b, n in unmatched %}<tr><td><code>{{ b }}</code></td><td>{{ n }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endif %}
+{% else %}
+<div class="card">
+  <div class="card-head"><h2>1️⃣ Find ZKT on this PC</h2></div>
+  <form method="post"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="act" value="find">
+    <button class="btn primary big">🔍 Find ZKT</button></form>
+  {% if found %}
+  <div style="margin-top:14px">
+  {% for p in found %}
+    <form method="post" class="inline" style="margin-bottom:8px"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="act" value="connect">
+      <input type="hidden" name="path" value="{{ p }}">
+      <div><label>Found</label><code>{{ p }}</code></div>
+      <div><label>Import punches from</label><input type="date" name="since" value="{{ month1 }}"></div>
+      <button class="btn primary">✅ Connect</button></form>
+  {% endfor %}
+  </div>
+  {% endif %}
+</div>
+<div class="card">
+  <div class="card-head"><h2>Or type the path</h2></div>
+  <form method="post" class="inline"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input type="hidden" name="act" value="connect">
+    <div style="flex:1"><label>Path of att2000.mdb</label><input name="path" placeholder="C:\Program Files (x86)\ZKTime5.0\att2000.mdb" style="width:100%"></div>
+    <div><label>Import punches from</label><input type="date" name="since" value="{{ month1 }}"></div>
+    <button class="btn">Connect</button></form>
+  <p class="muted">The HR server must run on the PC that has the ZKT software (or the path must be a shared network folder). ZKT keeps working normally – the HR system only reads its data.</p>
+</div>
+{% endif %}
+
+{% if recent %}
+<div class="card">
+  <div class="card-head"><h2>🕒 Latest punches</h2></div>
+  <div class="table-wrap"><table><thead><tr><th>ZKT No.</th><th>Name</th><th>Time</th></tr></thead><tbody>
+  {% for r in recent %}<tr><td><code>{{ r.badge }}</code></td><td>{{ people.get(r.badge, '') }}</td><td>{{ r.punch_time }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endif %}
+{% endblock %}
