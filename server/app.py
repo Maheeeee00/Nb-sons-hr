@@ -729,6 +729,21 @@ def _e400(e):
     return render_template("error.html", code=400, msg=getattr(e, "description", "Bad request")), 400
 
 
+@app.errorhandler(500)
+def _e500(e):
+    """Show what went wrong and keep it in error.log (in the data folder) so it can be fixed."""
+    import traceback
+    orig = getattr(e, "original_exception", None) or e
+    try:
+        with open(os.path.join(DATA_DIR, "error.log"), "a", encoding="utf-8") as f:
+            f.write(f"\n[{datetime.now():%Y-%m-%d %H:%M:%S}] {request.method} {request.path}\n")
+            f.write("".join(traceback.format_exception(type(orig), orig, orig.__traceback__)))
+    except Exception:                                                # noqa: BLE001
+        pass
+    return render_template("error.html", code=500,
+                           msg=f"Something went wrong: {type(orig).__name__}: {orig}. Details were saved in error.log."), 500
+
+
 # --------------------------------------------------------------------------- login
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -3082,7 +3097,12 @@ def start_zkt_thread():
 @app.route("/attendance/zkt", methods=["GET", "POST"])
 @perm_required("attendance.manage")
 def zkt_page():
-    import zkt_reader
+    try:
+        import zkt_reader
+    except Exception as e:                                           # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+        return render_template("error.html", code="ZKT", msg=f"The ZKT reader could not start: {type(e).__name__}: {e}"), 500
     found = None
     if request.method == "POST":
         act = request.form.get("act")

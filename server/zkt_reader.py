@@ -3,9 +3,13 @@ Works without Microsoft Access installed (uses the bundled access_parser reader)
 import os
 import shutil
 import string
+import sys
 import tempfile
 
-from zk_vendor.access_parser import AccessParser
+_VENDOR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "zk_vendor")
+if _VENDOR not in sys.path:
+    sys.path.append(_VENDOR)                          # bundled "construct" is used if it isn't installed
+from zk_vendor.access_parser import AccessParser      # noqa: E402
 
 NAMES = ("att2000.mdb",)
 COMMON = [r"Program Files (x86)\ZKTime5.0", r"Program Files\ZKTime5.0", r"ZKTime5.0", r"Program Files (x86)\Att",
