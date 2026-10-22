@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "1.3.2"
+APP_VERSION = "1.3.3"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -1852,13 +1852,20 @@ def attendance_report():
     month = f"{y:04d}-{m:02d}"
     dates = month_dates(y, m)
     dept = request.args.get("dept", "")
-    sql = """SELECT e.id, e.emp_code, e.name, d.name dept FROM employees e LEFT JOIN departments d
+    search = request.args.get("q", "").strip()
+    emp_id = request.args.get("emp", type=int)
+    sql = """SELECT e.id, e.emp_code, e.name, e.designation, d.name dept FROM employees e LEFT JOIN departments d
              ON d.id=e.department_id WHERE e.status='active'"""
     args = []
     if dept:
         sql += " AND e.department_id=?"
         args.append(dept)
+    if search:
+        sql += " AND (e.name LIKE ? OR e.emp_code LIKE ?)"
+        args += [f"%{search}%", f"%{search}%"]
     emps = q(sql + " ORDER BY d.name, e.name", args)
+    if search and len(emps) == 1 and not emp_id:
+        emp_id = emps[0]["id"]
     grid = {}
     for r in q("SELECT employee_id, date, status FROM attendance WHERE substr(date,1,7)=?", (month,)):
         grid[(r["employee_id"], r["date"])] = r["status"]
@@ -1875,8 +1882,23 @@ def attendance_report():
                 + [r["c"]["present"], r["c"]["late"], r["c"]["half_day"], r["c"]["absent"], r["c"]["leave"]]
                 for r in rows]
         return csv_response(f"attendance-{month}.csv", head, body)
+    detail = None
+    if emp_id:
+        e = q("""SELECT e.id, e.emp_code, e.name, e.designation, d.name dept FROM employees e
+                 LEFT JOIN departments d ON d.id=e.department_id WHERE e.id=?""", (emp_id,), one=True)
+        if e:
+            recs = {r["date"]: r for r in q("SELECT * FROM attendance WHERE employee_id=? AND substr(date,1,7)=?",
+                                            (emp_id, month))}
+            days = [{"d": d, "r": recs.get(d.isoformat()), "off": d.weekday() in off} for d in dates]
+            c = Counter(r["status"] for r in recs.values())
+            workdays = sum(1 for x_ in days if not x_["off"] and x_["d"] <= date.today())
+            attended = c["present"] + c["late"] + c["half_day"] * 0.5
+            detail = {"e": e, "days": days, "c": c, "workdays": workdays,
+                      "pct": round(attended * 100 / workdays) if workdays else 0,
+                      "unmarked": sum(1 for x_ in days if not x_["off"] and not x_["r"] and x_["d"] <= date.today())}
     return render_template("attendance_report.html", month=month, dates=dates, rows=rows, off=off,
-                           prev=shift_month(y, m, -1), next=shift_month(y, m, 1), depts=all_depts(), dept=dept)
+                           prev=shift_month(y, m, -1), next=shift_month(y, m, 1), depts=all_depts(), dept=dept,
+                           search=search, detail=detail, today=date.today())
 
 
 @app.route("/my/attendance")
@@ -3536,8 +3558,7 @@ def global_search(term, limit=8):
                           "sub": f"{r['p'] or 0} present · {r['lt'] or 0} late · {r['ab'] or 0} absent · today: "
                                  f"{(r['today'] or 'not marked').replace('_', ' ')}",
                           "badge": r["today"] or "",
-                          "url": url_for("attendance_manage", emp=r["id"], frm=frm) if can("attendance.manage")
-                          else url_for("attendance_report")})
+                          "url": url_for("attendance_report", emp=r["id"])})
         if items:
             out.append({"group": "Attendance", "icon": "✅", "more": None, "items": items[:limit]})
     if can("leaves.view", "leaves.approve"):

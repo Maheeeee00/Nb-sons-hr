@@ -1,37 +1,82 @@
 {% extends "base.html" %}
 {% from "_m.html" import month_nav %}
 {% from "_att_tabs.html" import att_tabs with context %}
+{% set emp_q = request.args.get('emp', '') %}
 {% block title %}Attendance report{% endblock %}
 {% block heading %}Monthly attendance · {{ month|monthname }}{% endblock %}
 {% block actions %}
-  {{ month_nav('attendance_report', month, prev, next) }}
-  <a class="btn" href="{{ url_for('attendance_report', month=month, dept=dept, export='csv') }}">Export to Excel (CSV)</a>
+  {{ month_nav('attendance_report', month, prev, next, dept=dept, q=search, emp=emp_q) }}
+  <a class="btn" href="{{ url_for('attendance_report', month=month, dept=dept, q=search, export='csv') }}">📥 Export to Excel</a>
 {% endblock %}
 {% block content %}
 {{ att_tabs("report") }}
-<div class="card">
-  <form class="inline" method="get" style="margin-bottom:12px">
-    <input type="hidden" name="month" value="{{ month }}">
-    <div><label>Department</label><select name="dept" onchange="this.form.submit()"><option value="">All departments</option>
-      {% for d in depts %}<option value="{{ d.id }}" {{ 'selected' if dept == d.id|string }}>{{ d.name }}</option>{% endfor %}</select></div>
-  </form>
-  <div class="table-wrap"><table class="att-grid">
-    <thead><tr><th class="name">Employee</th>
-      {% for d in dates %}<th class="{{ 'off' if d.weekday() in off }}">{{ d.day }}<br><small>{{ d.strftime('%a')[:2] }}</small></th>{% endfor %}
-      <th>P</th><th>L</th><th>H</th><th>A</th><th>LV</th></tr></thead>
+{% set CHIP = {'present': 'P', 'late': 'L', 'half_day': 'H', 'absent': 'A', 'leave': 'LV'} %}
+
+<form class="card mr-filters" method="get">
+  <input type="hidden" name="month" value="{{ month }}">
+  <div class="mr-search"><label>Search employee</label>
+    <input name="q" value="{{ search }}" placeholder="Type a name or employee code…" autocomplete="off"></div>
+  <div><label>Department</label><select name="dept" onchange="this.form.submit()"><option value="">All departments</option>
+    {% for d in depts %}<option value="{{ d.id }}" {{ 'selected' if dept == d.id|string }}>{{ d.name }}</option>{% endfor %}</select></div>
+  <button class="btn primary">🔍 Search</button>
+  {% if search or dept or detail %}<a class="btn" href="{{ url_for('attendance_report', month=month) }}">Clear</a>{% endif %}
+</form>
+
+{% if detail %}{% set e = detail.e %}{% set c = detail.c %}
+<div class="card mr-detail">
+  <div class="card-head">
+    <div><h2>👤 {{ e.name }}</h2><small class="muted">{{ e.emp_code }}{% if e.designation %} · {{ e.designation }}{% endif %}{% if e.dept %} · {{ e.dept }}{% endif %} · {{ month|monthname }}</small></div>
+    <a class="btn sm" href="{{ url_for('attendance_report', month=month, dept=dept, q=search) }}">✕ Close</a>
+  </div>
+  <div class="mr-sum">
+    <div class="mr-s s-p"><b>{{ c.present }}</b><span>Present</span></div>
+    <div class="mr-s s-l"><b>{{ c.late }}</b><span>Late</span></div>
+    <div class="mr-s s-h"><b>{{ c.half_day }}</b><span>Half day</span></div>
+    <div class="mr-s s-a"><b>{{ c.absent }}</b><span>Absent</span></div>
+    <div class="mr-s s-lv"><b>{{ c.leave }}</b><span>Leave</span></div>
+    <div class="mr-s"><b>{{ detail.unmarked }}</b><span>Not marked</span></div>
+    <div class="mr-s s-pct"><b>{{ detail.pct }}%</b><span>Attendance ({{ detail.workdays }} working days)</span></div>
+  </div>
+  <div class="table-wrap"><table class="mr-days">
+    <thead><tr><th>Date</th><th>Day</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Note</th></tr></thead>
     <tbody>
-    {% for r in rows %}
-      <tr><td class="name"><b>{{ r.e.name }}</b><br><small>{{ r.e.emp_code }}</small></td>
-        {% for s in r.cells %}{% set d = dates[loop.index0] %}
-          {% if s %}<td><span class="c-{{ ATT_CODES[s] }}" style="padding:1px 3px">{{ ATT_CODES[s] }}</span></td>
-          {% else %}<td class="{{ 'off' if d.weekday() in off }}">{{ '·' if d.weekday() not in off else '' }}</td>{% endif %}
-        {% endfor %}
-        <td class="c-P">{{ r.c.present }}</td><td class="c-L">{{ r.c.late }}</td><td>{{ r.c.half_day }}</td><td>{{ r.c.absent }}</td><td class="c-LV">{{ r.c.leave }}</td>
+    {% for x in detail.days if x.d <= today or x.r %}{% set r = x.r %}
+      <tr class="{{ 'off' if x.off }} {{ 'today' if x.d == today }}">
+        <td>{{ x.d.strftime('%d %b') }}</td><td>{{ x.d.strftime('%A') }}</td>
+        <td>{% if r %}<span class="chip ch-{{ CHIP[r.status] }}">{{ CHIP[r.status] }}</span> {{ r.status|replace('_', ' ')|title }}
+            {% elif x.off %}<span class="muted">Weekly off</span>{% else %}<span class="muted">Not marked</span>{% endif %}</td>
+        <td>{{ r.check_in if r and r.check_in else '—' }}</td><td>{{ r.check_out if r and r.check_out else '—' }}</td>
+        <td class="muted">{{ r.note if r and r.note else '' }}</td>
       </tr>
-    {% else %}<tr><td colspan="{{ dates|length + 6 }}" class="empty">No employees.</td></tr>{% endfor %}
+    {% endfor %}
     </tbody>
   </table></div>
-  <div class="legend"><span><b class="c-P">P</b> Present</span><span><b class="c-L">L</b> Late</span><span><b class="c-H">H</b> Half day</span>
-    <span><b class="c-A" style="padding:0 3px">A</b> Absent</span><span><b class="c-LV">LV</b> Leave</span><span>· Not marked</span><span><span class="off" style="padding:0 6px">&nbsp;</span> Weekly off</span></div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-head"><h2>🗓️ {{ rows|length }} employee{{ '' if rows|length == 1 else 's' }}</h2>
+    <small class="muted">Click a name to see that employee's full report</small></div>
+  <div class="table-wrap"><table class="mr-grid">
+    <thead><tr><th class="mr-name">Employee</th>
+      {% for d in dates %}<th class="{{ 'off' if d.weekday() in off }} {{ 'today' if d == today }}"><b>{{ d.day }}</b><small>{{ d.strftime('%a')[:2] }}</small></th>{% endfor %}
+      <th class="mr-tot t-p">P</th><th class="mr-tot t-l">L</th><th class="mr-tot t-h">H</th><th class="mr-tot t-a">A</th><th class="mr-tot t-lv">LV</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr class="{{ 'sel' if detail and detail.e.id == r.e.id }}">
+        <td class="mr-name"><a href="{{ url_for('attendance_report', month=month, dept=dept, q=search, emp=r.e.id) }}"><b>{{ r.e.name }}</b></a><small>{{ r.e.emp_code }}</small></td>
+        {% for s in r.cells %}{% set d = dates[loop.index0] %}
+          <td class="{{ 'off' if d.weekday() in off }} {{ 'today' if d == today }}">{% if s %}<span class="chip ch-{{ CHIP[s] }}" title="{{ d.strftime('%d %b') }}: {{ s|replace('_', ' ')|title }}">{{ CHIP[s] }}</span>{% endif %}</td>
+        {% endfor %}
+        <td class="mr-tot t-p">{{ r.c.present }}</td><td class="mr-tot t-l">{{ r.c.late }}</td><td class="mr-tot t-h">{{ r.c.half_day }}</td><td class="mr-tot t-a">{{ r.c.absent }}</td><td class="mr-tot t-lv">{{ r.c.leave }}</td>
+      </tr>
+    {% else %}<tr><td colspan="{{ dates|length + 6 }}" class="empty">{{ 'No employee matches “%s”.'|format(search) if search else 'No employees.' }}</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  <div class="mr-legend">
+    <span><i class="chip ch-P">P</i> Present</span><span><i class="chip ch-L">L</i> Late</span><span><i class="chip ch-H">H</i> Half day</span>
+    <span><i class="chip ch-A">A</i> Absent</span><span><i class="chip ch-LV">LV</i> Leave</span>
+    <span><i class="mr-offbox"></i> Weekly off</span><span><i class="mr-todaybox"></i> Today</span>
+  </div>
 </div>
 {% endblock %}
