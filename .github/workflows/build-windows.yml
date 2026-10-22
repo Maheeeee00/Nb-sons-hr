@@ -20,9 +20,15 @@ jobs:
           pyinstaller --noconfirm --onefile --noconsole --name hr-server `
             --add-data "server/templates;templates" --add-data "server/static;static" `
             --hidden-import waitress --hidden-import openpyxl `
+            --hidden-import zkt_reader --hidden-import zk_vendor.access_parser --hidden-import construct `
             --icon desktop/server-app/src-tauri/icons/icon.ico --paths server server/server_main.py
           New-Item -ItemType Directory -Force desktop/server-app/src-tauri/binaries | Out-Null
           Copy-Item dist/hr-server.exe desktop/server-app/src-tauri/binaries/hr-server-x86_64-pc-windows-msvc.exe
+      - name: Check the ZKT reader on Windows (sample att2000.mdb)
+        shell: pwsh
+        run: |
+          cd server
+          python -c "import zkt_reader; p,u = zkt_reader.read_mdb('../tools/att2000-sample.mdb'); print(len(p), 'people', len(u), 'punches'); assert len(p) == 12 and len(u) > 300"
       - name: Smoke-test hr-server.exe
         shell: pwsh
         run: |

@@ -16,12 +16,12 @@
 <div class="note"><b>{{ weekday }}, {{ d|nicedate }}</b>{% if not workday %} — this is a weekly off day.{% endif %}
   · Employees who check in themselves appear automatically. Leave approved by HR is filled in as “Leave”.</div>
 <div class="stats">
-  <div class="stat ok"><div class="v">{{ counts.present or 0 }}</div><div class="l">Present</div></div>
-  <div class="stat warn"><div class="v">{{ counts.late or 0 }}</div><div class="l">Late</div></div>
-  <div class="stat warn"><div class="v">{{ counts.half_day or 0 }}</div><div class="l">Half day</div></div>
-  <div class="stat bad"><div class="v">{{ counts.absent or 0 }}</div><div class="l">Absent</div></div>
-  <div class="stat info"><div class="v">{{ counts.leave or 0 }}</div><div class="l">Leave</div></div>
-  <div class="stat"><div class="v">{{ emps|length - att|length }}</div><div class="l">Not marked</div></div>
+  <div class="stat ok"><div class="v" id="c-present">{{ counts.present or 0 }}</div><div class="l">Present</div></div>
+  <div class="stat warn"><div class="v" id="c-late">{{ counts.late or 0 }}</div><div class="l">Late</div></div>
+  <div class="stat warn"><div class="v" id="c-half_day">{{ counts.half_day or 0 }}</div><div class="l">Half day</div></div>
+  <div class="stat bad"><div class="v" id="c-absent">{{ counts.absent or 0 }}</div><div class="l">Absent</div></div>
+  <div class="stat info"><div class="v" id="c-leave">{{ counts.leave or 0 }}</div><div class="l">Leave</div></div>
+  <div class="stat"><div class="v" id="c-none">{{ emps|length - att|length }}</div><div class="l">Not marked</div></div>
 </div>
 <form method="post" class="card">
   {{ csrf() }}<input type="hidden" name="date" value="{{ d.isoformat() }}">
@@ -34,12 +34,17 @@
     </div>
   </div>
   <div class="table-wrap"><table class="daily">
-    <thead><tr><th>Employee</th><th>Department</th><th>Status</th><th>In</th><th>Out</th><th>Note</th></tr></thead>
+    <thead><tr><th>Employee</th><th>Department</th><th>Quick mark</th><th>Status</th><th>In</th><th>Out</th><th>Note</th></tr></thead>
     <tbody>
     {% for e in emps %}{% set a = att.get(e.id) %}
       <tr>
         <td><b>{{ e.name }}</b><br><small>{{ e.emp_code }}{% if e.designation %} · {{ e.designation }}{% endif %}</small></td>
         <td>{{ e.dept or '—' }}</td>
+        <td class="qm" data-eid="{{ e.id }}">{% set cur = a.status if a else '' %}
+          <button type="button" class="qb qp {{ 'on' if cur in ('present', 'late', 'half_day') }}" data-st="present" title="Mark present">✔ Present</button>
+          <button type="button" class="qb ql {{ 'on' if cur == 'leave' }}" data-st="leave" title="Mark on leave">🌴 Leave</button>
+          <button type="button" class="qb qa {{ 'on' if cur == 'absent' }}" data-st="absent" title="Mark absent">✖ Absent</button>
+        </td>
         <td><select name="status_{{ e.id }}" class="st">
           <option value="">— not marked —</option>
           {% for s in ATT_STATUSES %}<option value="{{ s }}" {{ 'selected' if a and a.status == s }}>{{ s|replace('_',' ')|title }}</option>{% endfor %}
@@ -48,12 +53,36 @@
         <td><input type="time" name="out_{{ e.id }}" value="{{ a.check_out if a and a.check_out else '' }}"></td>
         <td><input class="note-in" name="note_{{ e.id }}" value="{{ a.note if a and a.note else '' }}"></td>
       </tr>
-    {% else %}<tr><td colspan="6" class="empty">No active employees on this date. <a href="{{ url_for('employee_new') }}">Add employees</a> first.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="7" class="empty">No active employees on this date. <a href="{{ url_for('employee_new') }}">Add employees</a> first.</td></tr>{% endfor %}
     </tbody>
   </table></div>
   {% if emps %}<div style="margin-top:14px"><button class="btn primary">Save attendance</button></div>{% endif %}
 </form>
 <script>
+document.querySelectorAll('td.qm .qb').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var cell = b.closest('td.qm'), row = b.closest('tr'), eid = cell.dataset.eid, st = b.dataset.st;
+    var fd = new FormData();
+    fd.append('csrf', document.querySelector('input[name=csrf]').value);
+    fd.append('eid', eid); fd.append('date', '{{ d.isoformat() }}'); fd.append('status', st);
+    cell.classList.add('busy');
+    fetch('{{ url_for("attendance_mark") }}', {method: 'POST', body: fd, credentials: 'same-origin'})
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        cell.classList.remove('busy');
+        if (!j.ok) { alert(j.error || 'Could not save'); return; }
+        cell.querySelectorAll('.qb').forEach(function (x) { x.classList.toggle('on', x === b); });
+        var sel = row.querySelector('select.st'); if (sel && !(st === 'present' && (sel.value === 'late' || sel.value === 'half_day'))) sel.value = st;
+        if (st !== 'present') row.querySelectorAll('input[type=time]').forEach(function (i) { i.value = ''; });
+        var total = 0;
+        ['present', 'late', 'half_day', 'absent', 'leave'].forEach(function (k) {
+          var n = j.counts[k] || 0; total += n; var el = document.getElementById('c-' + k); if (el) el.textContent = n; });
+        document.getElementById('c-none').textContent = Math.max({{ emps|length }} - total, 0);
+        row.classList.add('saved'); setTimeout(function () { row.classList.remove('saved'); }, 900);
+      })
+      .catch(function () { cell.classList.remove('busy'); alert('Could not save – is the server running?'); });
+  });
+});
 function fill(v){document.querySelectorAll('select.st').forEach(function(s){if(!s.value)s.value=v;});}
 </script>
 {% endblock %}

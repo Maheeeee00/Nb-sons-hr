@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -555,7 +555,7 @@ AUDIT_NAMES = {
     "employee_delete": "Deleted employee", "employee_account": "Changed employee login",
     "employee_import_confirm": "Imported employees", "department_new": "Saved department",
     "departments_manage": "Changed departments", "department_delete": "Deleted department",
-    "attendance": "Marked attendance", "attendance_manage": "Edited attendance",
+    "attendance": "Marked attendance", "attendance_mark": "Quick-marked attendance", "attendance_manage": "Edited attendance",
     "attendance_import_confirm": "Imported attendance", "leaves": "Recorded leave", "leave_decide": "Leave decision",
     "payroll_generate": "Generated payroll", "payroll_edit": "Edited salary", "payroll_status": "Changed salary status",
     "payroll_pay_all": "Marked all salaries paid", "payroll_delete": "Deleted salary row",
@@ -1806,6 +1806,27 @@ def attendance():
     return render_template("attendance_daily.html", d=d, emps=emps, att=att, counts=counts,
                            prev=(d - timedelta(days=1)).isoformat(), next=(d + timedelta(days=1)).isoformat(),
                            workday=is_workday(d), weekday=WEEKDAYS[d.weekday()])
+
+
+@app.post("/attendance/mark")
+@perm_required("attendance.manage")
+def attendance_mark():
+    """One-click marking from the Daily Attendance page (Present / Leave / Absent)."""
+    eid = request.form.get("eid", type=int)
+    ds = parse_date(request.form.get("date"), date.today()).isoformat()
+    st = request.form.get("status", "")
+    if st not in ("present", "leave", "absent") or not q("SELECT 1 FROM employees WHERE id=?", (eid,), one=True):
+        return {"ok": False, "error": "Invalid request"}, 400
+    if st == "present":
+        db().execute("""INSERT INTO attendance(employee_id,date,status) VALUES(?,?,'present')
+                        ON CONFLICT(employee_id,date) DO UPDATE SET status='present'""", (eid, ds))
+    else:
+        db().execute("""INSERT INTO attendance(employee_id,date,status) VALUES(?,?,?)
+                        ON CONFLICT(employee_id,date) DO UPDATE SET status=excluded.status, check_in=NULL, check_out=NULL""",
+                     (eid, ds, st))
+    db().commit()
+    counts = Counter(r["status"] for r in q("SELECT status FROM attendance WHERE date=?", (ds,)))
+    return {"ok": True, "status": st, "counts": dict(counts)}
 
 
 @app.route("/attendance/report")
