@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% block title %}Permissions · {{ target.username }}{% endblock %}
+{% block heading %}Permissions for {{ target.username }}{% endblock %}
+{% block actions %}<a class="btn" href="{{ url_for('users') }}">← Users & logins</a>{% endblock %}
+{% block content %}
+<nav class="subnav">
+  <a href="{{ url_for('users') }}" class="on"><span>🔐</span> Users & Logins</a>
+  <a href="{{ url_for('roles_page') }}"><span>🛡️</span> Roles & Permissions</a>
+</nav>
+{% if target.role == 'admin' %}
+<div class="card"><p style="margin:0">👑 <b>{{ target.username }}</b> is an <b>Administrator</b> and always has every permission. To limit this user, change their role on Users & Logins first.</p></div>
+{% else %}
+<div class="note">Role: <b>{{ role.name if role else target.role }}</b>. Switch any permission <b>on</b> or <b>off</b> for this user only – the role and other users are not changed.
+  {% if add or rem %}<br>This user has <b>{{ add|length }}</b> extra and <b>{{ rem|length }}</b> removed permission(s) compared with the role.{% endif %}</div>
+<form method="post" class="card">
+  {{ csrf() }}<input type="hidden" name="action" value="save">
+  <div class="card-head">
+    <h2>🔑 What {{ target.username }} can do</h2>
+    <div class="btns">
+      <button class="btn primary">💾 Save</button>
+    </div>
+  </div>
+  <div class="table-wrap"><table class="perm">
+    <thead><tr><th class="pm-left">Permission</th><th style="width:110px">From role</th><th style="width:110px">This user</th><th></th></tr></thead>
+    <tbody>
+    {% for module, items in groups.items() %}
+      <tr class="pm-mod"><td colspan="4">{{ {'Employees':'👥','Departments':'🏢','Attendance':'✅','Leaves':'🌴','Payroll':'💰','Assets':'💻','System':'⚙️'}.get(module, '•') }} {{ module }}</td></tr>
+      {% for key, label in items %}
+      <tr>
+        <td class="pm-left">{{ label }} <small class="muted">{{ key }}</small></td>
+        <td class="pm-cell">{{ '✔' if key in base else '—' }}</td>
+        <td class="pm-cell"><label class="tick"><input type="checkbox" name="perm" value="{{ key }}" {{ 'checked' if key in have }}><span></span></label></td>
+        <td>{% if key in add %}<span class="badge b-present">switched on</span>{% elif key in rem %}<span class="badge b-absent">switched off</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <div style="margin-top:14px"><button class="btn primary">💾 Save</button></div>
+</form>
+{% if add or rem %}
+<form method="post" class="card" onsubmit="return confirm('Remove all custom switches and use only the role permissions?')">
+  {{ csrf() }}<input type="hidden" name="action" value="reset">
+  <button class="btn">↺ Reset to role permissions</button>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}

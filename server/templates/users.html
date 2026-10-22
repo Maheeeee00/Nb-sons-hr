@@ -37,10 +37,12 @@
       <td>{{ u.last_login or 'Never' }}</td>
       <td><form method="post" class="inline">{{ csrf() }}<input type="hidden" name="action" value="reset"><input type="hidden" name="id" value="{{ u.id }}">
         <input name="password" minlength="6" required placeholder="New password" style="min-width:130px"><button class="btn sm">Reset</button></form></td>
-      <td>{% if u.id != user.id %}<div class="btns">
+      <td><div class="btns">
+        <a class="btn sm" href="{{ url_for('user_perms_page', uid=u.id) }}">🔑 Permissions{% if u.perm_add or u.perm_remove %} <span class="badge b-late">custom</span>{% endif %}</a>
+        {% if u.id != user.id %}
         <form method="post">{{ csrf() }}<input type="hidden" name="action" value="toggle"><input type="hidden" name="id" value="{{ u.id }}"><button class="btn sm">{{ 'Disable' if u.active else 'Enable' }}</button></form>
         <form method="post" onsubmit="return confirm('Delete user {{ u.username }}?')">{{ csrf() }}<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{ u.id }}"><button class="btn sm danger">Delete</button></form>
-      </div>{% endif %}</td>
+        {% endif %}</div></td>
     </tr>
   {% endfor %}
   </tbody>

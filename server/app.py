@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -198,7 +198,8 @@ def init_db():
           ALTER TABLE users_new RENAME TO users;""")
         con.execute("PRAGMA foreign_keys=ON")
     ucols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
-    for col, typ in (("failed_count", "INTEGER DEFAULT 0"), ("locked_until", "TEXT")):
+    for col, typ in (("failed_count", "INTEGER DEFAULT 0"), ("locked_until", "TEXT"),
+                     ("perm_add", "TEXT DEFAULT ''"), ("perm_remove", "TEXT DEFAULT ''")):
         if col not in ucols:
             con.execute(f"ALTER TABLE users ADD COLUMN {col} {typ}")
     for key, name, desc, perms in DEFAULT_ROLES:
@@ -560,7 +561,7 @@ AUDIT_NAMES = {
     "payroll_generate": "Generated payroll", "payroll_edit": "Edited salary", "payroll_status": "Changed salary status",
     "payroll_pay_all": "Marked all salaries paid", "payroll_delete": "Deleted salary row",
     "loans": "Gave a loan", "loan_view": "Changed a loan", "settings_page": "Changed settings",
-    "users": "Changed users", "roles_page": "Changed roles & permissions", "change_password": "Changed own password",
+    "users": "Changed users", "user_perms_page": "Changed a user's permissions", "roles_page": "Changed roles & permissions", "change_password": "Changed own password",
     "asset_new": "Added asset", "asset_edit": "Edited asset", "asset_assign": "Assigned asset",
     "asset_return": "Received asset back", "asset_delete": "Deleted asset", "assets_assign": "Assigned asset",
 }
@@ -597,12 +598,30 @@ def csrf_token():
 app.jinja_env.globals["csrf_token"] = csrf_token
 
 
-def has_access(u):
-    """Only HR / managers may sign in: admin, or a role with at least one permission."""
+def _split(v):
+    return {p for p in (v or "").split(",") if p}
+
+
+def role_perm_set(role):
+    if role == "admin":
+        return set(ALL_PERMS)
+    r = q("SELECT perms FROM roles WHERE key=?", (role,), one=True)
+    return _split(r["perms"] if r else "")
+
+
+def effective_perms(u):
+    """Role permissions, plus anything switched on for this user, minus anything switched off."""
     if u["role"] == "admin":
-        return True
-    r = q("SELECT perms FROM roles WHERE key=?", (u["role"],), one=True)
-    return bool(r and (r["perms"] or "").strip(","))
+        return set(ALL_PERMS)
+    keys = u.keys() if hasattr(u, "keys") else []
+    add = _split(u["perm_add"]) if "perm_add" in keys else set()
+    rem = _split(u["perm_remove"]) if "perm_remove" in keys else set()
+    return ((role_perm_set(u["role"]) | add) - rem) & set(ALL_PERMS)
+
+
+def has_access(u):
+    """Only HR / managers may sign in: admin, or someone with at least one permission."""
+    return bool(effective_perms(u))
 
 
 def login_required(f):
@@ -626,11 +645,8 @@ def user_perms():
         u = g.get("user")
         if not u:
             g.perms = set()
-        elif u["role"] == "admin":
-            g.perms = set(ALL_PERMS)
         else:
-            r = q("SELECT perms FROM roles WHERE key=?", (u["role"],), one=True)
-            g.perms = {p for p in ((r["perms"] if r else "") or "").split(",") if p}
+            g.perms = effective_perms(u)
     return g.perms
 
 
@@ -2785,6 +2801,36 @@ def settings_page():
                            off=weekly_off(), weekdays=WEEKDAYS, lan=lan_address(), pcname=socket.gethostname(),
                            notify_types=NOTIFY_TYPES,
                            notify_off=set((get_settings().get("notify_off") or "").split(",")))
+
+
+@app.route("/users/<int:uid>/permissions", methods=["GET", "POST"])
+@perm_required("users")
+def user_perms_page(uid):
+    target = q("SELECT * FROM users WHERE id=?", (uid,), one=True)
+    if not target:
+        abort(404)
+    role = q("SELECT * FROM roles WHERE key=?", (target["role"],), one=True)
+    base = role_perm_set(target["role"])
+    if request.method == "POST":
+        if target["role"] == "admin":
+            flash("Administrators always have every permission.", "error")
+        elif request.form.get("action") == "reset":
+            x("UPDATE users SET perm_add='', perm_remove='' WHERE id=?", (uid,))
+            flash(f"{target['username']} now has exactly the permissions of the role {role['name'] if role else target['role']}.", "ok")
+        else:
+            want = set(request.form.getlist("perm")) & set(ALL_PERMS)
+            if target["id"] == g.user["id"] and "users" not in want:
+                flash("You can't remove the Users permission from your own account.", "error")
+                return redirect(url_for("user_perms_page", uid=uid))
+            x("UPDATE users SET perm_add=?, perm_remove=? WHERE id=?",
+              (",".join(sorted(want - base)), ",".join(sorted(base - want)), uid))
+            flash(f"Permissions saved for {target['username']}.", "ok")
+        return redirect(url_for("user_perms_page", uid=uid))
+    groups = {}
+    for key, module, label in PERMISSIONS:
+        groups.setdefault(module, []).append((key, label))
+    return render_template("user_perms.html", target=target, role=role, base=base, have=effective_perms(target),
+                           groups=groups, add=_split(target["perm_add"]), rem=_split(target["perm_remove"]))
 
 
 @app.route("/users", methods=["GET", "POST"])
