@@ -32,7 +32,10 @@ jobs:
       - name: Check the packaged hr-server.exe can read ZKT data
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath dist/hr-server.exe -ArgumentList "--check-zkt", "tools/att2000-sample.mdb" -Wait -PassThru
+          $mdb = (Resolve-Path tools/att2000-sample.mdb).Path
+          $env:HR_DATA = "$env:RUNNER_TEMP\zkcheck"
+          $p = Start-Process -FilePath dist/hr-server.exe -ArgumentList "--check-zkt", "`"$mdb`"" -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "ZKT check timed out" }
           if ($p.ExitCode -ne 0) { throw "Packaged app cannot read ZKT data (exit $($p.ExitCode))" }
           Write-Host "Packaged app reads ZKT data OK"
       - name: Smoke-test hr-server.exe

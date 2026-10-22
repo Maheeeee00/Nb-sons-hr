@@ -53,10 +53,14 @@ def _watch_parent(pid):
 
 if __name__ == "__main__":
     if len(sys.argv) >= 3 and sys.argv[1] == "--check-zkt":   # build check: can the packaged app read ZKT data?
-        import zkt_reader
-        people, punches = zkt_reader.read_mdb(sys.argv[2])
-        print(f"ZKT check: {len(people)} people, {len(punches)} punches", flush=True)
-        os._exit(0 if people and punches else 3)
+        try:
+            import zkt_reader
+            people, punches = zkt_reader.read_mdb(sys.argv[2])
+            print(f"ZKT check: {len(people)} people, {len(punches)} punches", flush=True)
+            os._exit(0 if people and punches else 3)
+        except BaseException as e:                     # noqa: BLE001 - never show an error box during the check
+            print(f"ZKT check failed: {type(e).__name__}: {e}", flush=True)
+            os._exit(4)
     port = int(os.environ.get("HR_PORT", "5000"))
     print(f"NB Sons HR server {hr.APP_VERSION} - data: {hr.DATA_DIR} - port {port}", flush=True)
     parent = os.environ.get("HR_PARENT_PID", "")
