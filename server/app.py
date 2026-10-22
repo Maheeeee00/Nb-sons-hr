@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "1.3.3"
+APP_VERSION = "1.3.4"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -1866,15 +1866,25 @@ def attendance_report():
     emps = q(sql + " ORDER BY d.name, e.name", args)
     if search and len(emps) == 1 and not emp_id:
         emp_id = emps[0]["id"]
-    grid = {}
-    for r in q("SELECT employee_id, date, status FROM attendance WHERE substr(date,1,7)=?", (month,)):
+    grid, times = {}, {}
+    for r in q("SELECT employee_id, date, status, check_in, check_out FROM attendance WHERE substr(date,1,7)=?", (month,)):
         grid[(r["employee_id"], r["date"])] = r["status"]
+        times[(r["employee_id"], r["date"])] = (r["check_in"] or "", r["check_out"] or "")
     off = weekly_off()
+    workdays_so_far = sum(1 for d in dates if d.weekday() not in off and d <= date.today())
     rows = []
+    team = Counter()
     for e in emps:
         cells = [grid.get((e["id"], d.isoformat())) for d in dates]
         c = Counter(s for s in cells if s)
-        rows.append({"e": e, "cells": cells, "c": c})
+        team.update(c)
+        attended = c["present"] + c["late"] + c["half_day"] * 0.5
+        pct = round(attended * 100 / workdays_so_far) if workdays_so_far else 0
+        tips = [times.get((e["id"], d.isoformat()), ("", "")) for d in dates]
+        rows.append({"e": e, "cells": cells, "c": c, "pct": min(pct, 100), "tips": tips,
+                     "initials": "".join(w[0] for w in e["name"].split()[:2]).upper()})
+    team_attended = team["present"] + team["late"] + team["half_day"] * 0.5
+    team_pct = round(team_attended * 100 / (workdays_so_far * len(emps))) if workdays_so_far and emps else 0
     if request.args.get("export") == "csv":
         head = ["Code", "Name", "Department"] + [str(d.day) for d in dates] + ["Present", "Late", "Half", "Absent", "Leave"]
         body = [[r["e"]["emp_code"], r["e"]["name"], r["e"]["dept"] or ""]
@@ -1898,7 +1908,8 @@ def attendance_report():
                       "unmarked": sum(1 for x_ in days if not x_["off"] and not x_["r"] and x_["d"] <= date.today())}
     return render_template("attendance_report.html", month=month, dates=dates, rows=rows, off=off,
                            prev=shift_month(y, m, -1), next=shift_month(y, m, 1), depts=all_depts(), dept=dept,
-                           search=search, detail=detail, today=date.today())
+                           search=search, detail=detail, today=date.today(), team=team,
+                           team_pct=min(team_pct, 100), workdays_so_far=workdays_so_far)
 
 
 @app.route("/my/attendance")

@@ -11,62 +11,104 @@
 {% block content %}
 {{ att_tabs("report") }}
 {% set CHIP = {'present': 'P', 'late': 'L', 'half_day': 'H', 'absent': 'A', 'leave': 'LV'} %}
+{% set LABEL = {'present': 'Present', 'late': 'Late', 'half_day': 'Half day', 'absent': 'Absent', 'leave': 'Leave'} %}
 
+{# ---------- Team summary ---------- #}
+<div class="rp-kpis">
+  <div class="rp-ring-card">
+    <svg class="rp-ring" viewBox="0 0 120 120"><circle cx="60" cy="60" r="50" class="rp-ring-bg"/>
+      <circle cx="60" cy="60" r="50" class="rp-ring-fg" style="--pct: {{ team_pct }}"/></svg>
+    <div class="rp-ring-txt"><b data-count="{{ team_pct }}" data-suffix="%">0%</b><span>Team attendance</span></div>
+    <div class="rp-ring-note">{{ rows|length }} employee{{ '' if rows|length == 1 else 's' }} · {{ workdays_so_far }} working day{{ '' if workdays_so_far == 1 else 's' }} so far</div>
+  </div>
+  <div class="rp-kpi k-p"><i>✔</i><b data-count="{{ team.present }}">0</b><span>Present</span></div>
+  <div class="rp-kpi k-l"><i>⏰</i><b data-count="{{ team.late }}">0</b><span>Late arrivals</span></div>
+  <div class="rp-kpi k-h"><i>◐</i><b data-count="{{ team.half_day }}">0</b><span>Half days</span></div>
+  <div class="rp-kpi k-a"><i>✖</i><b data-count="{{ team.absent }}">0</b><span>Absences</span></div>
+  <div class="rp-kpi k-lv"><i>🌴</i><b data-count="{{ team.leave }}">0</b><span>Leave days</span></div>
+</div>
+
+{# ---------- Filters ---------- #}
 <form class="card mr-filters" method="get">
   <input type="hidden" name="month" value="{{ month }}">
   <div class="mr-search"><label>Search employee</label>
-    <input name="q" value="{{ search }}" placeholder="Type a name or employee code…" autocomplete="off"></div>
+    <div class="rp-searchbox"><span>🔍</span><input name="q" value="{{ search }}" placeholder="Type a name or employee code and press Enter…" autocomplete="off"></div></div>
   <div><label>Department</label><select name="dept" onchange="this.form.submit()"><option value="">All departments</option>
     {% for d in depts %}<option value="{{ d.id }}" {{ 'selected' if dept == d.id|string }}>{{ d.name }}</option>{% endfor %}</select></div>
-  <button class="btn primary">🔍 Search</button>
+  <button class="btn primary">Search</button>
   {% if search or dept or detail %}<a class="btn" href="{{ url_for('attendance_report', month=month) }}">Clear</a>{% endif %}
 </form>
 
+{# ---------- One employee's report ---------- #}
 {% if detail %}{% set e = detail.e %}{% set c = detail.c %}
-<div class="card mr-detail">
-  <div class="card-head">
-    <div><h2>👤 {{ e.name }}</h2><small class="muted">{{ e.emp_code }}{% if e.designation %} · {{ e.designation }}{% endif %}{% if e.dept %} · {{ e.dept }}{% endif %} · {{ month|monthname }}</small></div>
+{% set total = (c.present + c.late + c.half_day + c.absent + c.leave) or 1 %}
+<div class="card rp-detail">
+  <div class="rp-dhead">
+    <div class="rp-avatar big">{{ e.name.split()[:2]|map('first')|join|upper }}</div>
+    <div class="rp-dname"><h2>{{ e.name }}</h2>
+      <small>{{ e.emp_code }}{% if e.designation %} · {{ e.designation }}{% endif %}{% if e.dept %} · {{ e.dept }}{% endif %} · {{ month|monthname }}</small></div>
     <a class="btn sm" href="{{ url_for('attendance_report', month=month, dept=dept, q=search) }}">✕ Close</a>
   </div>
-  <div class="mr-sum">
-    <div class="mr-s s-p"><b>{{ c.present }}</b><span>Present</span></div>
-    <div class="mr-s s-l"><b>{{ c.late }}</b><span>Late</span></div>
-    <div class="mr-s s-h"><b>{{ c.half_day }}</b><span>Half day</span></div>
-    <div class="mr-s s-a"><b>{{ c.absent }}</b><span>Absent</span></div>
-    <div class="mr-s s-lv"><b>{{ c.leave }}</b><span>Leave</span></div>
-    <div class="mr-s"><b>{{ detail.unmarked }}</b><span>Not marked</span></div>
-    <div class="mr-s s-pct"><b>{{ detail.pct }}%</b><span>Attendance ({{ detail.workdays }} working days)</span></div>
+  <div class="rp-dbody">
+    <div class="rp-donut-wrap">
+      {% set ns = namespace(off=0) %}
+      <svg class="rp-donut" viewBox="0 0 42 42">
+        <circle cx="21" cy="21" r="15.915" class="rp-donut-bg"/>
+        {% for k, col in [('present', '#16a34a'), ('late', '#f59e0b'), ('half_day', '#fb923c'), ('absent', '#dc2626'), ('leave', '#2563eb')] %}
+          {% set v = (c[k] or 0) * 100 / total %}
+          {% if c[k] %}<circle cx="21" cy="21" r="15.915" class="rp-seg" stroke="{{ col }}" style="--len: {{ v }}; --off: {{ 25 - ns.off }}; animation-delay: {{ loop.index0 * 0.15 }}s"/>{% endif %}
+          {% set ns.off = ns.off + v %}
+        {% endfor %}
+      </svg>
+      <div class="rp-donut-txt"><b data-count="{{ detail.pct }}" data-suffix="%">0%</b><span>attendance</span></div>
+    </div>
+    <div class="rp-dstats">
+      {% for k in ['present', 'late', 'half_day', 'absent', 'leave'] %}
+      <div class="rp-dstat d-{{ CHIP[k] }}"><span class="chip ch-{{ CHIP[k] }}">{{ CHIP[k] }}</span>
+        <div><b data-count="{{ c[k] }}">0</b><small>{{ LABEL[k] }}</small></div>
+        <div class="rp-dbar"><i style="--w: {{ (c[k] or 0) * 100 / total }}%"></i></div></div>
+      {% endfor %}
+      <div class="rp-dstat"><span class="chip" style="background:#94a3b8">?</span><div><b data-count="{{ detail.unmarked }}">0</b><small>Not marked</small></div>
+        <div class="rp-dbar"><i style="--w: 0%"></i></div></div>
+    </div>
   </div>
-  <div class="table-wrap"><table class="mr-days">
-    <thead><tr><th>Date</th><th>Day</th><th>Status</th><th>Check-in</th><th>Check-out</th><th>Note</th></tr></thead>
-    <tbody>
-    {% for x in detail.days if x.d <= today or x.r %}{% set r = x.r %}
-      <tr class="{{ 'off' if x.off }} {{ 'today' if x.d == today }}">
-        <td>{{ x.d.strftime('%d %b') }}</td><td>{{ x.d.strftime('%A') }}</td>
-        <td>{% if r %}<span class="chip ch-{{ CHIP[r.status] }}">{{ CHIP[r.status] }}</span> {{ r.status|replace('_', ' ')|title }}
-            {% elif x.off %}<span class="muted">Weekly off</span>{% else %}<span class="muted">Not marked</span>{% endif %}</td>
-        <td>{{ r.check_in if r and r.check_in else '—' }}</td><td>{{ r.check_out if r and r.check_out else '—' }}</td>
-        <td class="muted">{{ r.note if r and r.note else '' }}</td>
-      </tr>
+  <h3 class="rp-sub">Day by day</h3>
+  <div class="rp-cal">
+    {% for w in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] %}<div class="rp-wd">{{ w }}</div>{% endfor %}
+    {% for _ in range(dates[0].weekday()) %}<div class="rp-blank"></div>{% endfor %}
+    {% for x in detail.days %}{% set r = x.r %}
+      <div class="rp-day {{ 'off' if x.off }} {{ 'today' if x.d == today }} {{ 'future' if x.d > today and not r }} {{ 's-' ~ CHIP[r.status] if r }}" style="--i: {{ loop.index0 }}">
+        <div class="rp-dnum">{{ x.d.day }}<small>{{ x.d.strftime('%a') }}</small></div>
+        {% if r %}<div class="rp-dst">{{ LABEL[r.status] }}</div>
+          <div class="rp-dtime">{{ r.check_in or '' }}{% if r.check_out %} – {{ r.check_out }}{% endif %}</div>
+        {% elif x.off %}<div class="rp-dst muted">Off</div>
+        {% elif x.d <= today %}<div class="rp-dst muted">Not marked</div>{% endif %}
+      </div>
     {% endfor %}
-    </tbody>
-  </table></div>
+  </div>
 </div>
 {% endif %}
 
-<div class="card">
-  <div class="card-head"><h2>🗓️ {{ rows|length }} employee{{ '' if rows|length == 1 else 's' }}</h2>
-    <small class="muted">Click a name to see that employee's full report</small></div>
-  <div class="table-wrap"><table class="mr-grid">
-    <thead><tr><th class="mr-name">Employee</th>
+{# ---------- Whole team grid ---------- #}
+<div class="card rp-gridcard">
+  <div class="card-head"><h2>🗓️ Team calendar</h2>
+    <small class="muted">Hover a box for details · click a name for the full report</small></div>
+  <div class="table-wrap"><table class="mr-grid rp-grid">
+    <thead>
+      <tr class="rp-group"><th class="mr-name"></th><th colspan="{{ dates|length }}">Days of {{ month|monthname }}</th><th colspan="5">Totals</th></tr>
+      <tr><th class="mr-name">Employee</th>
       {% for d in dates %}<th class="{{ 'off' if d.weekday() in off }} {{ 'today' if d == today }}"><b>{{ d.day }}</b><small>{{ d.strftime('%a')[:2] }}</small></th>{% endfor %}
-      <th class="mr-tot t-p">P</th><th class="mr-tot t-l">L</th><th class="mr-tot t-h">H</th><th class="mr-tot t-a">A</th><th class="mr-tot t-lv">LV</th></tr></thead>
+      <th class="mr-tot t-p" title="Present">P</th><th class="mr-tot t-l" title="Late">L</th><th class="mr-tot t-h" title="Half day">H</th><th class="mr-tot t-a" title="Absent">A</th><th class="mr-tot t-lv" title="Leave">LV</th></tr>
+    </thead>
     <tbody>
-    {% for r in rows %}
-      <tr class="{{ 'sel' if detail and detail.e.id == r.e.id }}">
-        <td class="mr-name"><a href="{{ url_for('attendance_report', month=month, dept=dept, q=search, emp=r.e.id) }}"><b>{{ r.e.name }}</b></a><small>{{ r.e.emp_code }}</small></td>
-        {% for s in r.cells %}{% set d = dates[loop.index0] %}
-          <td class="{{ 'off' if d.weekday() in off }} {{ 'today' if d == today }}">{% if s %}<span class="chip ch-{{ CHIP[s] }}" title="{{ d.strftime('%d %b') }}: {{ s|replace('_', ' ')|title }}">{{ CHIP[s] }}</span>{% endif %}</td>
+    {% for r in rows %}{% set row = loop.index0 %}
+      <tr class="{{ 'sel' if detail and detail.e.id == r.e.id }}" style="--r: {{ row }}">
+        <td class="mr-name"><a class="rp-who" href="{{ url_for('attendance_report', month=month, dept=dept, q=search, emp=r.e.id) }}">
+          <span class="rp-avatar">{{ r.initials }}</span>
+          <span class="rp-whotxt"><b>{{ r.e.name }}</b><small>{{ r.e.emp_code }} · {{ r.pct }}%</small>
+            <span class="rp-bar {{ 'low' if r.pct < 75 else ('mid' if r.pct < 90 else '') }}"><i style="--w: {{ r.pct }}%"></i></span></span></a></td>
+        {% for s in r.cells %}{% set d = dates[loop.index0] %}{% set t = r.tips[loop.index0] %}
+          <td class="{{ 'off' if d.weekday() in off }} {{ 'today' if d == today }}">{% if s %}<span class="chip ch-{{ CHIP[s] }} rp-pop" style="--i: {{ loop.index0 }}" data-tip="{{ d.strftime('%a %d %b') }} · {{ LABEL[s] }}{% if t[0] %} · In {{ t[0] }}{% endif %}{% if t[1] %} · Out {{ t[1] }}{% endif %}">{{ CHIP[s] }}</span>{% endif %}</td>
         {% endfor %}
         <td class="mr-tot t-p">{{ r.c.present }}</td><td class="mr-tot t-l">{{ r.c.late }}</td><td class="mr-tot t-h">{{ r.c.half_day }}</td><td class="mr-tot t-a">{{ r.c.absent }}</td><td class="mr-tot t-lv">{{ r.c.leave }}</td>
       </tr>
@@ -77,6 +119,27 @@
     <span><i class="chip ch-P">P</i> Present</span><span><i class="chip ch-L">L</i> Late</span><span><i class="chip ch-H">H</i> Half day</span>
     <span><i class="chip ch-A">A</i> Absent</span><span><i class="chip ch-LV">LV</i> Leave</span>
     <span><i class="mr-offbox"></i> Weekly off</span><span><i class="mr-todaybox"></i> Today</span>
+    <span class="rp-legend-bar"><i class="rp-bar"><i style="--w:100%"></i></i> Attendance % (green 90%+, amber 75–89%, red below 75%)</span>
   </div>
 </div>
+<div id="rp-tip"></div>
+<script>
+(function () {
+  // count-up numbers
+  document.querySelectorAll('[data-count]').forEach(function (el) {
+    var end = parseFloat(el.dataset.count) || 0, suf = el.dataset.suffix || '', t0 = null, dur = 900;
+    function step(ts) { if (!t0) t0 = ts; var k = Math.min((ts - t0) / dur, 1), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = Math.round(end * e) + suf; if (k < 1) requestAnimationFrame(step); }
+    requestAnimationFrame(step);
+  });
+  // rich tooltip
+  var tip = document.getElementById('rp-tip');
+  document.querySelectorAll('[data-tip]').forEach(function (el) {
+    el.addEventListener('mouseenter', function () { tip.textContent = el.dataset.tip; tip.classList.add('on');
+      var r = el.getBoundingClientRect(); tip.style.left = (r.left + r.width / 2 + window.scrollX) + 'px'; tip.style.top = (r.top + window.scrollY - 8) + 'px'; });
+    el.addEventListener('mouseleave', function () { tip.classList.remove('on'); });
+  });
+  document.body.classList.add('rp-ready');
+})();
+</script>
 {% endblock %}
