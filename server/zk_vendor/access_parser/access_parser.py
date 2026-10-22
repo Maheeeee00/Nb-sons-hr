@@ -2,7 +2,7 @@ import logging
 import struct
 from collections import defaultdict
 
-from construct import ConstructError
+from ..construct import ConstructError
 try:
     from tabulate import tabulate
 except ImportError:          # only used by print_database(), not needed by NB Sons HR

@@ -20,7 +20,7 @@ jobs:
           pyinstaller --noconfirm --onefile --noconsole --name hr-server `
             --add-data "server/templates;templates" --add-data "server/static;static" `
             --hidden-import waitress --hidden-import openpyxl `
-            --hidden-import zkt_reader --hidden-import zk_vendor.access_parser --hidden-import construct `
+            --hidden-import zkt_reader --collect-submodules zk_vendor `
             --icon desktop/server-app/src-tauri/icons/icon.ico --paths server server/server_main.py
           New-Item -ItemType Directory -Force desktop/server-app/src-tauri/binaries | Out-Null
           Copy-Item dist/hr-server.exe desktop/server-app/src-tauri/binaries/hr-server-x86_64-pc-windows-msvc.exe
@@ -29,6 +29,12 @@ jobs:
         run: |
           cd server
           python -c "import zkt_reader; p,u = zkt_reader.read_mdb('../tools/att2000-sample.mdb'); print(len(p), 'people', len(u), 'punches'); assert len(p) == 12 and len(u) > 300"
+      - name: Check the packaged hr-server.exe can read ZKT data
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist/hr-server.exe -ArgumentList "--check-zkt", "tools/att2000-sample.mdb" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Packaged app cannot read ZKT data (exit $($p.ExitCode))" }
+          Write-Host "Packaged app reads ZKT data OK"
       - name: Smoke-test hr-server.exe
         shell: pwsh
         run: |

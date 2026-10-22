@@ -1,5 +1,5 @@
-from construct import *
-from construct.lib import *
+from ..construct import *
+from ..construct.lib import *
 import sys, traceback, pdb, inspect
 
 

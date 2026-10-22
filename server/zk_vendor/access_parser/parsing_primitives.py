@@ -1,4 +1,4 @@
-from construct import *
+from ..construct import *
 
 
 def version_specific(version, v3_subcon, v4_subcon):

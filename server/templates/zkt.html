@@ -1,7 +1,9 @@
 {% extends "base.html" %}
+{% from "_att_tabs.html" import att_tabs %}
 {% block title %}ZKT Biometric{% endblock %}
 {% block heading %}ZKT Biometric{% endblock %}
 {% block content %}
+{{ att_tabs('zkt') }}
 <p class="muted" style="margin-top:-6px">Connect the ZKT attendance software once – punches then flow into Attendance automatically every 5 minutes.</p>
 {% set on = s.zkt_on == '1' %}
 <div class="kpis">

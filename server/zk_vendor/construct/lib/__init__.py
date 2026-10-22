@@ -1,8 +1,8 @@
-from construct.lib.containers import *
-from construct.lib.binary import *
-from construct.lib.bitstream import *
-from construct.lib.hex import *
-from construct.lib.py3compat import *
+from ...construct.lib.containers import *
+from ...construct.lib.binary import *
+from ...construct.lib.bitstream import *
+from ...construct.lib.hex import *
+from ...construct.lib.py3compat import *
 
 __all__ = [
     'bits2bytes',
