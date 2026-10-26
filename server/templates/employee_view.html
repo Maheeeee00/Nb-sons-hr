@@ -4,6 +4,7 @@
 {% block title %}{{ e.name }}{% endblock %}
 {% block crumb %}<a href="{{ url_for('dashboard') }}">Home</a> <span>/</span> <a href="{{ url_for('employee_profiles') }}">Employee profiles</a> <span>/</span> {{ e.name }}{% endblock %}
 {% block content %}
+<div class="pf">
 {% set colors = ['#14b8a6,#0e7c86','#3b82f6,#1d4ed8','#f59e0b,#c2410c','#8b5cf6,#5b21b6','#ec4899,#be123c','#22c55e,#15803d','#0ea5e9,#0369a1','#ef4444,#991b1b'] %}
 <section class="phero" style="--pc:linear-gradient(135deg,{{ colors[e.id % 8] }})">
   <div class="ph-band"></div>
@@ -31,13 +32,13 @@
   </div>
 </section>
 
-<div class="kpis">
-  <div class="kpi"><span class="ki bg-b">📈</span><div><div class="kv2">{{ att_pct if att_pct is not none else '—' }}{% if att_pct is not none %}<small style="font-size:15px">%</small>{% endif %}</div><div class="kl">Attendance · {{ month|monthname }}</div>
+<div class="kpis pf-kpis">
+  <div class="kpi"><span class="ki bg-b">📈</span><div><div class="kv2">{% if att_pct is not none %}<span data-count="{{ att_pct }}">0</span>{% else %}—{% endif %}{% if att_pct is not none %}<small style="font-size:15px">%</small>{% endif %}</div><div class="kl">Attendance · {{ month|monthname }}</div>
     {% if att_pct is not none %}<div class="bar"><i style="width:{{ [att_pct,100]|min }}%;background:{{ '#22c55e' if att_pct >= 90 else ('#f59e0b' if att_pct >= 75 else '#ef4444') }}"></i></div>{% endif %}</div></div>
-  <div class="kpi"><span class="ki bg-c">⏰</span><div><div class="kv2">{{ counts.late or 0 }}</div><div class="kl">Late · {{ counts.absent or 0 }} absent · {{ counts.leave or 0 }} leave</div></div></div>
+  <div class="kpi"><span class="ki bg-c">⏰</span><div><div class="kv2" data-count="{{ counts.late or 0 }}">0</div><div class="kl">Late · {{ counts.absent or 0 }} absent · {{ counts.leave or 0 }} leave</div></div></div>
   <div class="kpi"><span class="ki bg-f">🌴</span><div><div class="kv2">{{ (balances|sum(attribute='used'))|num }}</div><div class="kl">Leave days taken {{ today.year }}{% set pend = balances|sum(attribute='pending') %}{% if pend %} · {{ pend|num }} pending{% endif %}</div></div></div>
   {% if can('payroll.view') %}<div class="kpi"><span class="ki bg-e">💰</span><div><div class="kv2" style="font-size:22px">{{ ((e.basic_salary or 0) + (e.allowances or 0))|money }}</div><div class="kl">Gross / month ({{ settings.currency }})</div></div></div>{% endif %}
-  <div class="kpi"><span class="ki bg-a">💻</span><div><div class="kv2">{{ assets_now|length }}</div><div class="kl">Assets in hand</div></div></div>
+  <div class="kpi"><span class="ki bg-a">💻</span><div><div class="kv2" data-count="{{ assets_now|length }}">0</div><div class="kl">Assets in hand</div></div></div>
 </div>
 
 <div class="grid g2">
@@ -48,38 +49,42 @@
         <input type="month" name="month" value="{{ month }}" onchange="this.form.submit()" style="min-width:0;width:150px">
         <a class="btn sm" href="{{ url_for('employee_view', eid=e.id, month=next) }}">&rarr;</a>
       </form></div>
-    <div class="cal">
+    <div class="cal pf-cal">
       {% for w in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<div class="cal-h">{{ w }}</div>{% endfor %}
+      {% set LBL = {'present':'Present','late':'Late','half_day':'Half day','absent':'Absent','leave':'Leave','off':'Off','none':'Not marked','future':''} %}
       {% for c in cal %}
         {% if c is none %}<div></div>
         {% else %}{% set st = c.rec.status if c.rec else ('off' if not c.work else ('future' if c.future else 'none')) %}
-        <div class="cal-d cd-{{ st }} {{ 'cd-today' if c.d == today }}" title="{{ c.d|nicedate }}{% if c.rec %} · {{ c.rec.status|replace('_',' ') }}{% if c.rec.check_in %} · in {{ c.rec.check_in }}{% endif %}{% if c.rec.check_out %} · out {{ c.rec.check_out }}{% endif %}{% endif %}">
-          <b>{{ c.d.day }}</b><small>{{ {'present':'P','late':'L','half_day':'H','absent':'A','leave':'LV','off':'off','none':'·','future':''}[st] }}</small></div>
+        <div class="cal-d cd-{{ st }} {{ 'cd-today' if c.d == today }}" style="--i: {{ loop.index0 }}" title="{{ c.d|nicedate }}{% if c.rec %} · {{ c.rec.status|replace('_',' ') }}{% if c.rec.check_in %} · in {{ c.rec.check_in }}{% endif %}{% if c.rec.check_out %} · out {{ c.rec.check_out }}{% endif %}{% endif %}">
+          <b>{{ c.d.day }}</b><small>{{ LBL[st] }}</small>{% if c.rec and c.rec.check_in %}<em>{{ c.rec.check_in }}</em>{% endif %}</div>
         {% endif %}
       {% endfor %}
     </div>
-    <div class="legend"><span><i class="sw" style="background:#22c55e"></i>Present</span><span><i class="sw" style="background:#f59e0b"></i>Late / half</span>
-      <span><i class="sw" style="background:#ef4444"></i>Absent</span><span><i class="sw" style="background:#3b82f6"></i>Leave</span><span><i class="sw" style="background:#e5e7eb"></i>Off / not marked</span></div>
+    <div class="pf-calsum">
+      <span class="s-p"><b>{{ counts.present or 0 }}</b> Present</span><span class="s-l"><b>{{ counts.late or 0 }}</b> Late</span>
+      <span class="s-h"><b>{{ counts.half_day or 0 }}</b> Half day</span><span class="s-a"><b>{{ counts.absent or 0 }}</b> Absent</span>
+      <span class="s-lv"><b>{{ counts.leave or 0 }}</b> Leave</span>
+    </div>
   </div>
 
   <div class="card">
-    <div class="card-head"><h2>🪪 Personal details</h2></div>
-    <dl class="kv">
-      <dt>Reporting manager</dt><dd>{% if e.manager_id %}<a href="{{ url_for('employee_view', eid=e.manager_id) }}">{{ e.mgr_name }}</a> <small class="muted">{{ e.mgr_code }}{% if e.mgr_desig %} · {{ e.mgr_desig }}{% endif %}</small>{% else %}—{% endif %}</dd>
-      <dt>Father / husband</dt><dd>{{ e.father_name or '—' }}</dd>
-      <dt>CNIC</dt><dd>{{ e.cnic or '—' }}</dd>
-      <dt>Gender</dt><dd>{{ e.gender or '—' }}</dd>
-      <dt>Date of birth</dt><dd>{{ e.dob|nicedate or '—' }}</dd>
-      <dt>Phone</dt><dd>{{ e.phone or '—' }}</dd>
-      <dt>Email</dt><dd>{{ e.email or '—' }}</dd>
-      <dt>Address</dt><dd>{{ e.address or '—' }}</dd>
-      <dt>Emergency</dt><dd>{{ e.emergency_contact or '—' }}</dd>
+    <div class="card-head"><h2>👤 Personal details</h2></div>
+    <div class="pf-info">
+      <div><i>🧭</i><span>Reporting manager</span><b>{% if e.manager_id %}<a href="{{ url_for('employee_view', eid=e.manager_id) }}">{{ e.mgr_name }}</a>{% else %}—{% endif %}</b></div>
+      <div><i>👨‍👦</i><span>Father / husband</span><b>{{ e.father_name or '—' }}</b></div>
+      <div><i>🆔</i><span>CNIC</span><b>{{ e.cnic or '—' }}</b></div>
+      <div><i>⚧</i><span>Gender</span><b>{{ e.gender or '—' }}</b></div>
+      <div><i>🎂</i><span>Date of birth</span><b>{{ e.dob|nicedate or '—' }}</b></div>
+      <div><i>📞</i><span>Phone</span><b>{{ e.phone or '—' }}</b></div>
+      <div class="wide"><i>✉️</i><span>Email</span><b>{{ e.email or '—' }}</b></div>
+      <div class="wide"><i>🏠</i><span>Address</span><b>{{ e.address or '—' }}</b></div>
+      <div><i>🚑</i><span>Emergency contact</span><b>{{ e.emergency_contact or '—' }}</b></div>
       {% if can('payroll.view') %}
-      <dt>Basic salary</dt><dd>{{ settings.currency }} {{ e.basic_salary|money }}</dd>
-      <dt>Allowances</dt><dd>{{ settings.currency }} {{ e.allowances|money }}</dd>
-      <dt>Bank account</dt><dd>{{ e.bank_account or '—' }}</dd>
+      <div><i>💵</i><span>Basic salary</span><b>{{ settings.currency }} {{ e.basic_salary|money }}</b></div>
+      <div><i>➕</i><span>Allowances</span><b>{{ settings.currency }} {{ e.allowances|money }}</b></div>
+      <div><i>🏦</i><span>Bank account</span><b>{{ e.bank_account or '—' }}</b></div>
       {% endif %}
-    </dl>
+    </div>
     {% if team %}
     <div class="card-head" style="margin-top:16px"><h2>👥 Team ({{ team|length }})</h2><a href="{{ url_for('employees', manager=e.id, status='all') }}">View list →</a></div>
     <ul class="plist">{% for t in team %}<li><div class="grow"><b><a href="{{ url_for('employee_view', eid=t.id) }}">{{ t.name }}</a></b><small>{{ t.emp_code }}{% if t.designation %} · {{ t.designation }}{% endif %}</small></div>{{ badge(t.status) }}</li>{% endfor %}</ul>
@@ -104,8 +109,9 @@
     <div class="bal">
       {% for b in balances %}
         <div><small>{{ b.name }}</small>
-          {% if b.remaining is not none %}<b>{{ b.remaining|num }}</b><small>of {{ b.allowed }} left</small>
-          {% else %}<b>{{ b.used|num }}</b><small>used</small>{% endif %}</div>
+          {% if b.remaining is not none %}<b>{{ b.remaining|num }}</b><small>of {{ b.allowed }} days left</small>
+            <span class="pf-lbar"><i style="--w: {{ ((b.remaining or 0) * 100 / b.allowed) if b.allowed else 0 }}%"></i></span>
+          {% else %}<b>{{ b.used|num }}</b><small>days used</small>{% endif %}</div>
       {% endfor %}
     </div>
     {% if leaves %}
@@ -167,4 +173,8 @@
   </div>
   {% endif %}
 </div>
+</div>
+<script>
+document.querySelectorAll(".pf [data-count]").forEach(function(el){var end=parseFloat(el.dataset.count)||0,t0=null;function st(ts){if(!t0)t0=ts;var k=Math.min((ts-t0)/900,1),e=1-Math.pow(1-k,3);el.textContent=Math.round(end*e);if(k<1)requestAnimationFrame(st);}requestAnimationFrame(st);});
+</script>
 {% endblock %}
