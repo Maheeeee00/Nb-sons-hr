@@ -1,29 +1,8 @@
 {% extends "base.html" %}
 {% from "_m.html" import csrf %}
-{% block title %}Roles & permissions<script>
-document.querySelectorAll('.role-quick button').forEach(function (b) {
-  b.addEventListener('click', function () {
-    document.querySelectorAll('input[name="p_' + b.dataset.role + '"]').forEach(function (i) { if (!i.disabled) i.checked = b.dataset.on === '1'; });
-  });
-});
-</script>
-{% endblock %}
-{% block heading %}Roles & permissions<script>
-document.querySelectorAll('.role-quick button').forEach(function (b) {
-  b.addEventListener('click', function () {
-    document.querySelectorAll('input[name="p_' + b.dataset.role + '"]').forEach(function (i) { if (!i.disabled) i.checked = b.dataset.on === '1'; });
-  });
-});
-</script>
-{% endblock %}
-{% block actions %}<a class="btn" href="{{ url_for('users') }}">🔐 Users & logins</a><script>
-document.querySelectorAll('.role-quick button').forEach(function (b) {
-  b.addEventListener('click', function () {
-    document.querySelectorAll('input[name="p_' + b.dataset.role + '"]').forEach(function (i) { if (!i.disabled) i.checked = b.dataset.on === '1'; });
-  });
-});
-</script>
-{% endblock %}
+{% block title %}Roles & permissions{% endblock %}
+{% block heading %}Roles & permissions{% endblock %}
+{% block actions %}<a class="btn" href="{{ url_for('users') }}">🔐 Users & logins</a>{% endblock %}
 {% block content %}
 <nav class="subnav">
   <a href="{{ url_for('users') }}"><span>🔐</span> Users & Logins</a>
