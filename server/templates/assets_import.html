@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "_asset_tabs.html" import asset_tabs with context %}
+{% from "_m.html" import csrf %}
+{% block title %}Import assets{% endblock %}
+{% block heading %}Import assets{% endblock %}
+{% block content %}
+{{ asset_tabs('import') }}
+{% if result %}
+<div class="card">
+  <div class="card-head"><h2>✅ Import finished – {{ result.file }}</h2></div>
+  <div class="stats" style="margin-bottom:10px">
+    <div class="stat ok"><div class="v">{{ result.added }}</div><div class="l">New assets added</div></div>
+    <div class="stat info"><div class="v">{{ result.updated }}</div><div class="l">Existing assets updated</div></div>
+    <div class="stat"><div class="v">{{ result.assigned }}</div><div class="l">Assigned to employees</div></div>
+    <div class="stat {{ 'warn' if result.problems }}"><div class="v">{{ result.problems|length }}</div><div class="l">Rows needing attention</div></div>
+  </div>
+  {% if result.problems %}
+  <div class="table-wrap"><table><thead><tr><th style="width:90px">Excel row</th><th>What happened</th></tr></thead><tbody>
+    {% for n, msg in result.problems %}<tr><td>{{ n }}</td><td>{{ msg }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% endif %}
+  <div class="btns" style="margin-top:12px"><a class="btn primary" href="{{ url_for('assets') }}">💻 View all assets</a>
+    <a class="btn" href="{{ url_for('assets_import') }}">Import another file</a></div>
+</div>
+{% else %}
+<div class="grid g2">
+  <form method="post" enctype="multipart/form-data" class="card">
+    {{ csrf() }}
+    <div class="card-head"><h2>📤 Upload your asset list</h2></div>
+    <p class="muted" style="margin-top:0">Excel (.xlsx) or CSV. One asset per row.</p>
+    <input type="file" name="file" accept=".xlsx,.xlsm,.csv" required>
+    <div style="margin-top:14px" class="btns"><button class="btn primary">Import</button>
+      <a class="btn" href="{{ url_for('assets_import_template') }}">⬇ Download template</a></div>
+  </form>
+  <div class="card">
+    <div class="card-head"><h2>💡 How it works</h2></div>
+    <ul class="tips" style="margin-top:0">
+      <li>Only <b>Asset Name</b> is required. Leave <b>Asset Code</b> empty to auto-number (AST-0001…).</li>
+      <li>If an Asset Code already exists, that asset is <b>updated</b> instead of added twice.</li>
+      <li>Fill <b>Assign To</b> with an employee code (e.g. EMP-0001) or the exact name to <b>hand the asset over</b> at the same time.</li>
+      <li>Dates: DD/MM/YYYY. Condition: New, Good, Fair or Damaged.</li>
+      <li>Your own column names (e.g. "Serial", "Price", "Employee") are understood too.</li>
+    </ul>
+  </div>
+</div>
+<div class="card">
+  <div class="card-head"><h2>Columns</h2></div>
+  <div class="btns">{% for k, label in cols %}<span class="badge">{{ label }}</span>{% endfor %}</div>
+</div>
+{% endif %}
+{% endblock %}

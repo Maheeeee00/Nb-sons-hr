@@ -18,7 +18,7 @@
   <div class="deptcard">
     <div class="dc-top">
       <span class="dc-ic" style="background:linear-gradient(135deg,{{ ['#14b8a6,#0e7c86','#3b82f6,#1d4ed8','#f59e0b,#c2410c','#8b5cf6,#5b21b6','#ec4899,#be123c','#22c55e,#15803d','#0ea5e9,#0369a1','#64748b,#334155'][loop.index0 % 8] }})">{{ (d.code or d.name[:2])|upper }}</span>
-      <div class="dc-t"><b>{{ d.name }}</b><small>{{ d.description or ('Code ' ~ d.code if d.code else 'No description') }}</small></div>
+      <div class="dc-t"><a href="{{ url_for('department_view', did=d.id) }}" style="color:inherit"><b>{{ d.name }}</b></a><small>{{ d.description or ('Code ' ~ d.code if d.code else 'No description') }}</small></div>
     </div>
     <div class="dc-nums">
       <div><b>{{ d.active }}</b><small>Active staff</small></div>
@@ -28,7 +28,7 @@
     <div class="bar" style="height:6px;border-radius:4px;background:#eef2f6;margin:2px 0 12px"><i style="display:block;height:100%;border-radius:4px;width:{{ d.active * 100 / maxc }}%;background:linear-gradient(90deg,#14b8a6,#0ea5e9)"></i></div>
     <div class="dc-head">👤 Head: <b>{{ d.head_name or 'Not set' }}</b></div>
     <div class="btns" style="margin-top:12px">
-      <a class="btn sm" href="{{ url_for('employees', dept=d.id, status='all') }}">👥 View staff</a>
+      <a class="btn sm primary" href="{{ url_for('department_view', did=d.id) }}">👥 Employees list</a>
       <a class="btn sm" href="{{ url_for('attendance_report', dept=d.id) }}">📊 Attendance</a>
       <a class="btn sm" href="{{ url_for('departments_manage') }}#d{{ d.id }}">✏️ Edit</a>
     </div>

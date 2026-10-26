@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% from "_dept_tabs.html" import dept_tabs with context %}
+{% block title %}{{ d.name }}{% endblock %}
+{% block heading %}{{ d.name }}{% endblock %}
+{% block actions %}<div class="btns">
+  <select onchange="location.href=this.value" style="min-width:170px">
+    {% for o in others %}<option value="{{ url_for('department_view', did=o.id) }}" {{ 'selected' if o.id == d.id }}>{{ o.name }}</option>{% endfor %}</select>
+  <a class="btn" href="{{ url_for('department_view', did=d.id, show=show, q=term, export='csv') }}">📥 Export</a></div>
+{% endblock %}
+{% block content %}
+{{ dept_tabs('list') }}
+<div class="dv-hero">
+  <div class="dv-ic">{{ (d.code or d.name[:2])|upper }}</div>
+  <div class="dv-t"><h2>{{ d.name }}</h2><small>{{ d.description or 'No description' }}{% if d.code %} · Code {{ d.code }}{% endif %}</small>
+    <div class="dv-head">👤 Head: {% if d.head_eid %}<a href="{{ url_for('employee_view', eid=d.head_eid) }}">{{ d.head_name }}</a>{% else %}<span class="muted">Not set</span>{% endif %}</div></div>
+</div>
+<div class="stats">
+  <div class="stat"><div class="v">{{ stats.staff }}</div><div class="l">Active staff</div></div>
+  <div class="stat ok"><div class="v">{{ stats.in_today }}</div><div class="l">In today</div></div>
+  <div class="stat bad"><div class="v">{{ stats.absent }}</div><div class="l">Absent today</div></div>
+  <div class="stat info"><div class="v">{{ stats.leave }}</div><div class="l">On leave today</div></div>
+  {% if can('payroll.view') %}<div class="stat"><div class="v">{{ stats.bill|money }}</div><div class="l">Monthly salary bill</div></div>{% endif %}
+</div>
+<div class="card">
+  <form class="inline" method="get" style="margin-bottom:12px">
+    <div style="flex:1;min-width:220px"><label>Search in {{ d.name }}</label><input name="q" value="{{ term }}" placeholder="Name, code or designation…" style="width:100%"></div>
+    <div><label>Show</label><select name="show" onchange="this.form.submit()"><option value="active">Active staff</option><option value="all" {{ 'selected' if show == 'all' }}>All (incl. inactive)</option></select></div>
+    <button class="btn primary">Search</button>{% if term %}<a class="btn" href="{{ url_for('department_view', did=d.id, show=show) }}">Clear</a>{% endif %}
+  </form>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Employee</th><th>Designation</th><th>Phone</th><th>Joined</th><th>Reports to</th><th>Today</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for e in emps %}
+      <tr>
+        <td><a class="rp-who" href="{{ url_for('employee_view', eid=e.id) }}"><span class="rp-avatar">{{ e.name.split()[:2]|map('first')|join|upper }}</span>
+          <span class="rp-whotxt"><b>{{ e.name }}</b><small>{{ e.emp_code }}{% if e.id == d.head_id %} · Head{% endif %}</small></span></a></td>
+        <td>{{ e.designation or '—' }}</td><td>{{ e.phone or '—' }}</td><td>{{ e.join_date|nicedate if e.join_date else '—' }}</td>
+        <td>{{ e.mgr_name or '—' }}</td>
+        <td>{% if e.today %}<span class="badge b-{{ e.today }}">{{ e.today|replace('_', ' ')|title }}</span>{% else %}<span class="muted">Not marked</span>{% endif %}</td>
+        <td><span class="badge b-{{ e.status }}">{{ e.status|title }}</span></td>
+        <td><a class="btn sm primary" href="{{ url_for('employee_view', eid=e.id) }}">👤 View profile</a></td>
+      </tr>
+    {% else %}<tr><td colspan="8" class="empty">{{ 'No one matches “%s”.'|format(term) if term else 'No employees in this department yet.' }}</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  <p class="muted" style="margin-bottom:0;font-size:12.5px">{{ emps|length }} employee(s) shown. Move people between departments in <a href="{{ url_for('employee_bulk_edit') }}">Edit Employees</a>.</p>
+</div>
+{% endblock %}

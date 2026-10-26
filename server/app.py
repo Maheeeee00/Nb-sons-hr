@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "1.3.4"
+APP_VERSION = "1.4.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -563,7 +563,7 @@ AUDIT_NAMES = {
     "loans": "Gave a loan", "loan_view": "Changed a loan", "settings_page": "Changed settings",
     "users": "Changed users", "user_perms_page": "Changed a user's permissions", "roles_page": "Changed roles & permissions", "change_password": "Changed own password",
     "asset_new": "Added asset", "asset_edit": "Edited asset", "asset_assign": "Assigned asset",
-    "asset_return": "Received asset back", "asset_delete": "Deleted asset", "assets_assign": "Assigned asset",
+    "asset_return": "Received asset back", "asset_delete": "Deleted asset", "assets_assign": "Assigned asset", "assets_import": "Imported assets (page)",
 }
 _SKIP_FIELDS = {"csrf", "password", "new", "confirm", "current", "token", "changed"}
 
@@ -577,7 +577,7 @@ def _after(resp):
         resp.headers["Cache-Control"] = "no-store"             # don't keep HR data in the browser cache
     try:
         if request.method == "POST" and g.get("user") and resp.status_code < 400 and \
-                request.endpoint not in ("login", "logout", "checkin", "checkout", "backups", "backup_restore", "backup_delete"):
+                request.endpoint not in ("login", "logout", "checkin", "checkout", "backups", "backup_restore", "backup_delete", "assets_import"):
             name = AUDIT_NAMES.get(request.endpoint, request.endpoint or "?")
             bits = [f"{k}={v}" for k, v in request.form.items() if k not in _SKIP_FIELDS and v and len(v) < 60][:8]
             ids = ", ".join(f"{k} {v}" for k, v in (request.view_args or {}).items())
@@ -3107,6 +3107,175 @@ def backup():
     """Old link: take a backup now and download it."""
     name = make_backup("manual")
     return send_file(os.path.join(BACKUP_DIR, name), as_attachment=True, download_name=name)
+
+
+# --------------------------------------------------------------------------- asset import
+ASSET_IMPORT_COLS = [("asset_code", "Asset Code"), ("name", "Asset Name *"), ("category", "Category"), ("brand", "Brand"),
+                     ("model", "Model"), ("serial_no", "Serial No"), ("purchase_date", "Purchase Date"),
+                     ("cost", "Cost"), ("condition", "Condition"), ("location", "Location"), ("notes", "Notes"),
+                     ("assign_to", "Assign To (Employee Code or Name)"), ("assigned_on", "Assigned On")]
+_ASSET_ALIASES = {"code": "asset_code", "assetcode": "asset_code", "assetno": "asset_code", "tag": "asset_code",
+                  "name": "name", "assetname": "name", "item": "name", "description": "name",
+                  "category": "category", "type": "category", "brand": "brand", "make": "brand", "model": "model",
+                  "serial": "serial_no", "serialno": "serial_no", "serialnumber": "serial_no", "imei": "serial_no",
+                  "purchasedate": "purchase_date", "purchased": "purchase_date", "date": "purchase_date",
+                  "cost": "cost", "price": "cost", "value": "cost", "condition": "condition", "location": "location",
+                  "notes": "notes", "remarks": "notes", "assignto": "assign_to", "assignedto": "assign_to",
+                  "employee": "assign_to", "employeecode": "assign_to", "user": "assign_to", "holder": "assign_to",
+                  "assignedon": "assigned_on", "assigneddate": "assigned_on", "issuedon": "assigned_on"}
+
+
+def _akey(h):
+    k = "".join(ch for ch in str(h or "").lower() if ch.isalnum())
+    k = k.replace("employeecodeorname", "")
+    return _ASSET_ALIASES.get(k) or next((c for c, label in ASSET_IMPORT_COLS
+                                          if "".join(ch for ch in label.lower() if ch.isalnum()) == k), None)
+
+
+@app.route("/assets/import", methods=["GET", "POST"])
+@perm_required("assets.manage")
+def assets_import():
+    result = None
+    if request.method == "POST":
+        fs = request.files.get("file")
+        if not fs or not fs.filename:
+            flash("Please choose an Excel or CSV file.", "error")
+            return redirect(url_for("assets_import"))
+        try:
+            raw = read_upload(fs)
+        except Exception as e:                                       # noqa: BLE001
+            flash(f"Couldn't read the file: {e}", "error")
+            return redirect(url_for("assets_import"))
+        hdr_i, cols = None, {}
+        for i, r in enumerate(raw[:10]):
+            m = {j: _akey(v) for j, v in enumerate(r) if _akey(v)}
+            if "name" in m.values():
+                hdr_i, cols = i, m
+                break
+        if hdr_i is None:
+            flash("Couldn't find the header row. The file needs at least an 'Asset Name' column – download the template.", "error")
+            return redirect(url_for("assets_import"))
+        match = _employee_matcher()
+        added = updated = assigned = 0
+        problems = []
+        for n, r in enumerate(raw[hdr_i + 1:], start=hdr_i + 2):
+            cell = {cols[j]: (v if not isinstance(v, str) else v.strip()) for j, v in enumerate(r) if j in cols}
+            if not any(v not in (None, "") for v in cell.values()):
+                continue
+            name = _cell_text(cell.get("name"))
+            if not name:
+                problems.append((n, "Asset name is empty – row skipped"))
+                continue
+            code = _cell_text(cell.get("asset_code")).upper()
+            cond = _cell_text(cell.get("condition")).title()
+            cond = cond if cond in ASSET_CONDITIONS else "Good"
+            pdate = _parse_any_date(cell.get("purchase_date"))[0] if cell.get("purchase_date") not in (None, "") else ""
+            vals = {"name": name, "category": _cell_text(cell.get("category")) or "Other",
+                    "brand": _cell_text(cell.get("brand")) or None, "model": _cell_text(cell.get("model")) or None,
+                    "serial_no": _cell_text(cell.get("serial_no")) or None, "purchase_date": pdate or None,
+                    "cost": to_float(cell.get("cost"), 0), "condition": cond,
+                    "location": _cell_text(cell.get("location")) or None, "notes": _cell_text(cell.get("notes")) or None}
+            ex = q("SELECT * FROM assets WHERE asset_code=?", (code,), one=True) if code else None
+            if not ex and not code and vals["serial_no"]:          # same serial number = same asset, don't add twice
+                ex = q("SELECT * FROM assets WHERE serial_no=?", (vals["serial_no"],), one=True)
+                code = ex["asset_code"] if ex else code
+            if ex:
+                db().execute("""UPDATE assets SET name=?, category=?, brand=?, model=?, serial_no=?, purchase_date=?,
+                                cost=?, condition=?, location=?, notes=? WHERE id=?""",
+                             (*vals.values(), ex["id"]))
+                aid = ex["id"]
+                updated += 1
+            else:
+                code = code or next_asset_code()
+                cur = db().execute("""INSERT INTO assets(asset_code,name,category,brand,model,serial_no,purchase_date,
+                                      cost,condition,location,notes,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,'available')""",
+                                   (code, *vals.values()))
+                aid = cur.lastrowid
+                added += 1
+            db().commit()
+            who = _cell_text(cell.get("assign_to"))
+            if who:
+                emp, err = match(who, who, None)
+                if not emp:
+                    problems.append((n, f"{code}: saved, but not assigned – {err}"))
+                    continue
+                cur_holder = q("""SELECT employee_id FROM asset_assignments WHERE asset_id=? AND returned_on IS NULL""",
+                               (aid,), one=True)
+                if cur_holder and cur_holder["employee_id"] == emp["id"]:
+                    continue
+                if cur_holder:
+                    problems.append((n, f"{code}: already assigned to someone else – return it first, then assign"))
+                    continue
+                on = _parse_any_date(cell.get("assigned_on"))[0] if cell.get("assigned_on") not in (None, "") else ""
+                e2 = assign_asset(aid, emp["id"], on or None, None, cond, "Imported from Excel")
+                if e2:
+                    problems.append((n, f"{code}: {e2}"))
+                else:
+                    assigned += 1
+        audit("Imported assets", f"{added} new, {updated} updated, {assigned} assigned from {fs.filename}")
+        result = {"added": added, "updated": updated, "assigned": assigned, "problems": problems, "file": fs.filename}
+    return render_template("assets_import.html", result=result, cols=ASSET_IMPORT_COLS)
+
+
+@app.route("/assets/import/template")
+@perm_required("assets.manage")
+def assets_import_template():
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Assets"
+    ws.append([label for _, label in ASSET_IMPORT_COLS])
+    ws.append(["", "Dell Latitude 5440", "Laptop", "Dell", "Latitude 5440", "DL5440-001", "15/01/2026", 185000, "New",
+               "Head office", "", "EMP-0001", "20/01/2026"])
+    ws.append(["", "Samsung A15", "Mobile Phone", "Samsung", "A15", "IMEI 3567…", "01/02/2026", 45000, "Good",
+               "", "Company phone", "", ""])
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="0F2A44")
+    for i, (_, label) in enumerate(ASSET_IMPORT_COLS, start=1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = max(14, len(label) + 3)
+    ws.freeze_panes = "A2"
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name="asset-import-template.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+# --------------------------------------------------------------------------- department detail
+@app.route("/departments/<int:did>")
+@perm_required("departments.view")
+def department_view(did):
+    d = q("""SELECT d.*, h.name head_name, h.emp_code head_code, h.id head_eid FROM departments d
+             LEFT JOIN employees h ON h.id=d.head_id WHERE d.id=?""", (did,), one=True)
+    if not d:
+        abort(404)
+    show = request.args.get("show", "active")
+    term = request.args.get("q", "").strip()
+    sql = """SELECT e.*, m.name mgr_name,
+               (SELECT status FROM attendance a WHERE a.employee_id=e.id AND a.date=?) today
+             FROM employees e LEFT JOIN employees m ON m.id=e.manager_id WHERE e.department_id=?"""
+    args = [date.today().isoformat(), did]
+    if show != "all":
+        sql += " AND e.status='active'"
+    if term:
+        sql += " AND (e.name LIKE ? OR e.emp_code LIKE ? OR e.designation LIKE ?)"
+        args += [f"%{term}%"] * 3
+    emps = q(sql + " ORDER BY e.name", args)
+    if request.args.get("export") == "csv":
+        return csv_response(f"department-{d['name']}.csv",
+                            ["Code", "Name", "Designation", "Phone", "Joined", "Reports to", "Status", "Today"],
+                            [[e["emp_code"], e["name"], e["designation"] or "", e["phone"] or "", e["join_date"] or "",
+                              e["mgr_name"] or "", e["status"], e["today"] or ""] for e in emps])
+    active = [e for e in emps if e["status"] == "active"]
+    stats = {"staff": q("SELECT COUNT(*) c FROM employees WHERE department_id=? AND status='active'", (did,), one=True)["c"],
+             "in_today": sum(1 for e in active if e["today"] in ("present", "late", "half_day")),
+             "absent": sum(1 for e in active if e["today"] == "absent"),
+             "leave": sum(1 for e in active if e["today"] == "leave"),
+             "bill": sum((e["basic_salary"] or 0) + (e["allowances"] or 0) for e in active)}
+    others = q("SELECT id, name FROM departments ORDER BY name")
+    return render_template("department_view.html", d=d, emps=emps, stats=stats, show=show, term=term, others=others)
 
 
 # --------------------------------------------------------------------------- ZKT biometric link

@@ -38,7 +38,7 @@
     <tbody>
     {% for e in emps %}{% set a = att.get(e.id) %}
       <tr>
-        <td><b>{{ e.name }}</b><br><small>{{ e.emp_code }}{% if e.designation %} · {{ e.designation }}{% endif %}</small></td>
+        <td><b>{{ e.name }}</b>{% if a and a.note == 'ZKT' %} <span class="badge" title="Marked automatically from the ZKT biometric machine">👆 ZKT</span>{% endif %}<br><small>{{ e.emp_code }}{% if e.designation %} · {{ e.designation }}{% endif %}</small></td>
         <td>{{ e.dept or '—' }}</td>
         <td class="qm" data-eid="{{ e.id }}">{% set cur = a.status if a else '' %}
           <button type="button" class="qb qp {{ 'on' if cur in ('present', 'late', 'half_day') }}" data-st="present" title="Mark present">✔ Present</button>
