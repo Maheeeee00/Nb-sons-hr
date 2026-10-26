@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.5.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -73,6 +73,8 @@ CREATE TABLE IF NOT EXISTS attendance(
   id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
   date TEXT NOT NULL, status TEXT NOT NULL, check_in TEXT, check_out TEXT, note TEXT,
   UNIQUE(employee_id, date));
+CREATE TABLE IF NOT EXISTS recycle_bin(
+  id INTEGER PRIMARY KEY, kind TEXT NOT NULL, label TEXT, detail TEXT, deleted_at TEXT, deleted_by TEXT, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS zkt_punches(
   badge TEXT NOT NULL, punch_time TEXT NOT NULL, PRIMARY KEY(badge, punch_time));
 CREATE TABLE IF NOT EXISTS leave_types(
@@ -560,7 +562,7 @@ AUDIT_NAMES = {
     "attendance_import_confirm": "Imported attendance", "leaves": "Recorded leave", "leave_decide": "Leave decision",
     "payroll_generate": "Generated payroll", "payroll_edit": "Edited salary", "payroll_status": "Changed salary status",
     "payroll_pay_all": "Marked all salaries paid", "payroll_delete": "Deleted salary row",
-    "loans": "Gave a loan", "loan_view": "Changed a loan", "settings_page": "Changed settings",
+    "loans": "Gave a loan", "loan_view": "Changed a loan", "settings_page": "Changed settings", "recycle_bin": "Recycle bin",
     "users": "Changed users", "user_perms_page": "Changed a user's permissions", "roles_page": "Changed roles & permissions", "change_password": "Changed own password",
     "asset_new": "Added asset", "asset_edit": "Edited asset", "asset_assign": "Assigned asset",
     "asset_return": "Received asset back", "asset_delete": "Deleted asset", "assets_assign": "Assigned asset", "assets_import": "Imported assets (page)",
@@ -577,7 +579,7 @@ def _after(resp):
         resp.headers["Cache-Control"] = "no-store"             # don't keep HR data in the browser cache
     try:
         if request.method == "POST" and g.get("user") and resp.status_code < 400 and \
-                request.endpoint not in ("login", "logout", "checkin", "checkout", "backups", "backup_restore", "backup_delete", "assets_import"):
+                request.endpoint not in ("login", "logout", "checkin", "checkout", "backups", "backup_restore", "backup_delete", "assets_import", "recycle_bin"):
             name = AUDIT_NAMES.get(request.endpoint, request.endpoint or "?")
             bits = [f"{k}={v}" for k, v in request.form.items() if k not in _SKIP_FIELDS and v and len(v) < 60][:8]
             ids = ", ".join(f"{k} {v}" for k, v in (request.view_args or {}).items())
@@ -1238,6 +1240,7 @@ def employee_account(eid):
 @perm_required("employees.delete")
 def employee_delete(eid):
     e = get_emp(eid)
+    to_bin("employee", eid)
     x("UPDATE departments SET head_id=NULL WHERE head_id=?", (eid,))
     x("UPDATE employees SET manager_id=NULL WHERE manager_id=?", (eid,))
     for r in q("SELECT asset_id FROM asset_assignments WHERE employee_id=? AND returned_on IS NULL", (eid,)):
@@ -1758,6 +1761,7 @@ def departments_manage():
                     if n:
                         target = int(move_to) if move_to.isdigit() and move_to != did else None
                         db().execute("UPDATE employees SET department_id=? WHERE department_id=?", (target, did))
+                    to_bin("department", did)
                     db().execute("DELETE FROM departments WHERE id=?", (did,))
                     db().commit()
                     flash(f"Department '{d['name']}' deleted" + (f" and {n} employee(s) moved." if n else "."), "ok")
@@ -1780,6 +1784,7 @@ def department_delete(did):
     if q("SELECT 1 FROM employees WHERE department_id=?", (did,), one=True):
         flash("Move the employees in this department first, then delete it.", "error")
     else:
+        to_bin("department", did)
         x("DELETE FROM departments WHERE id=?", (did,))
         flash("Department deleted.", "ok")
     return redirect(url_for("departments_manage"))
@@ -2575,6 +2580,7 @@ def payroll_pay_all():
 def payroll_delete(pid):
     p = get_pay(pid)
     if p["status"] != "paid":
+        to_bin("payroll", pid)
         x("DELETE FROM loan_payments WHERE payroll_id=?", (pid,))
         x("DELETE FROM payroll WHERE id=?", (pid,))
         flash("Salary row removed.", "ok")
@@ -2747,6 +2753,7 @@ def loan_view(lid):
             if ln["n_pay"]:
                 flash("This loan has repayments. Close it instead of deleting.", "error")
             else:
+                to_bin("loan", lid)
                 x("DELETE FROM loans WHERE id=?", (lid,))
                 flash("Loan deleted.", "ok")
                 return redirect(url_for("loans"))
@@ -2825,12 +2832,14 @@ def settings_page():
                 flash("A leave type with that name already exists.", "error")
         elif form == "leave_type_delete":
             try:
+                if not q("SELECT 1 FROM leaves WHERE leave_type_id=?", (request.form.get("id"),), one=True):
+                    to_bin("leave_type", request.form.get("id", type=int))
                 x("DELETE FROM leave_types WHERE id=?", (request.form.get("id"),))
                 flash("Leave type deleted.", "ok")
             except sqlite3.IntegrityError:
                 flash("This leave type is used by existing leaves and can't be deleted. Rename it instead.", "error")
         return redirect(url_for("settings_page"))
-    return render_template("settings.html", types=q("SELECT * FROM leave_types ORDER BY name"),
+    return render_template("settings.html", bin_count=q("SELECT COUNT(*) c FROM recycle_bin", one=True)["c"], types=q("SELECT * FROM leave_types ORDER BY name"),
                            off=weekly_off(), weekdays=WEEKDAYS, lan=lan_address(), pcname=socket.gethostname(),
                            notify_types=NOTIFY_TYPES,
                            notify_off=set((get_settings().get("notify_off") or "").split(",")))
@@ -2886,9 +2895,15 @@ def users():
             elif q("SELECT 1 FROM users WHERE username=?", (uname,), one=True):
                 flash(f"Username '{uname}' is already taken.", "error")
             else:
-                x("INSERT INTO users(username,password_hash,role,must_change) VALUES(?,?,?,1)",
-                  (uname, generate_password_hash(pw), role))
-                flash(f"User '{uname}' created with role {roles[role]['name']}.", "ok")
+                add = rem = ""
+                if request.form.get("custom") == "1" and role != "admin":
+                    want = set(request.form.getlist("perm")) & set(ALL_PERMS)
+                    base = role_perm_set(role)
+                    add, rem = ",".join(sorted(want - base)), ",".join(sorted(base - want))
+                x("INSERT INTO users(username,password_hash,role,must_change,perm_add,perm_remove) VALUES(?,?,?,1,?,?)",
+                  (uname, generate_password_hash(pw), role, add, rem))
+                flash(f"User '{uname}' created with role {roles[role]['name']}" +
+                      (" and their own permission switches." if add or rem else "."), "ok")
         elif not target:
             flash("User not found.", "error")
         elif target["id"] == g.user["id"] and action in ("toggle", "delete", "role"):
@@ -2914,12 +2929,17 @@ def users():
             x("UPDATE users SET active=1-active WHERE id=?", (uid,))
             flash("User updated.", "ok")
         elif action == "delete":
+            to_bin("user", int(uid))
             x("DELETE FROM users WHERE id=?", (uid,))
             flash("User deleted.", "ok")
         return redirect(url_for("users"))
     rows = q("""SELECT u.*, e.name emp_name, e.emp_code FROM users u LEFT JOIN employees e ON e.id=u.employee_id
                 ORDER BY CASE u.role WHEN 'admin' THEN 0 WHEN 'employee' THEN 2 ELSE 1 END, u.username""")
-    return render_template("users.html", rows=rows, roles=list(roles.values()))
+    groups = {}
+    for k, module, label in PERMISSIONS:
+        groups.setdefault(module, []).append((k, label))
+    role_perms = {k: sorted(role_perm_set(k)) for k in roles}
+    return render_template("users.html", rows=rows, roles=list(roles.values()), groups=groups, role_perms=role_perms)
 
 
 @app.route("/roles", methods=["GET", "POST"])
@@ -2959,6 +2979,7 @@ def roles_page():
             elif n:
                 flash(f"{n} user(s) still have this role. Change their role on the Users page first.", "error")
             else:
+                to_bin("role", key)
                 x("DELETE FROM roles WHERE key=?", (key,))
                 flash(f"Role '{r['name']}' deleted.", "ok")
         return redirect(url_for("roles_page"))
@@ -3107,6 +3128,157 @@ def backup():
     """Old link: take a backup now and download it."""
     name = make_backup("manual")
     return send_file(os.path.join(BACKUP_DIR, name), as_attachment=True, download_name=name)
+
+
+# --------------------------------------------------------------------------- recycle bin
+BIN_KINDS = {"employee": ("👤", "Employee"), "department": ("🏢", "Department"), "user": ("🔐", "User login"),
+             "role": ("🛡️", "Role"), "asset": ("💻", "Asset"), "payroll": ("💰", "Salary row"),
+             "loan": ("🏦", "Loan"), "leave_type": ("🌴", "Leave type")}
+
+
+def _rows(sql, args=()):
+    return [dict(r) for r in db().execute(sql, args).fetchall()]
+
+
+def _ids(rows):
+    return [r["id"] for r in rows]
+
+
+def _inq(ids):
+    return ",".join("?" * len(ids)) or "NULL"
+
+
+def to_bin(kind, oid):
+    """Save a full copy of an item (and the records that belong to it) before it is deleted."""
+    tables, fix = [], []
+    label = detail = ""
+    if kind == "employee":
+        e = _rows("SELECT * FROM employees WHERE id=?", (oid,))
+        if not e:
+            return
+        label, detail = e[0]["name"], e[0]["emp_code"]
+        pay = _rows("SELECT * FROM payroll WHERE employee_id=?", (oid,))
+        loans = _rows("SELECT * FROM loans WHERE employee_id=?", (oid,))
+        lp = _rows(f"SELECT * FROM loan_payments WHERE loan_id IN ({_inq(_ids(loans))}) OR payroll_id IN ({_inq(_ids(pay))})",
+                   _ids(loans) + _ids(pay))
+        tables = [("employees", e), ("users", _rows("SELECT * FROM users WHERE employee_id=?", (oid,))),
+                  ("attendance", _rows("SELECT * FROM attendance WHERE employee_id=?", (oid,))),
+                  ("leaves", _rows("SELECT * FROM leaves WHERE employee_id=?", (oid,))),
+                  ("payroll", pay), ("loans", loans), ("loan_payments", lp)]
+        fix = [("departments", "head_id", oid, _ids(_rows("SELECT id FROM departments WHERE head_id=?", (oid,)))),
+               ("employees", "manager_id", oid, _ids(_rows("SELECT id FROM employees WHERE manager_id=?", (oid,)))),
+               ("asset_assignments", "employee_id", oid, _ids(_rows("SELECT id FROM asset_assignments WHERE employee_id=?", (oid,))))]
+        n = sum(len(r) for _, r in tables[2:])
+        detail += f" · with {n} attendance/leave/salary/loan record(s)" if n else ""
+    elif kind == "department":
+        d = _rows("SELECT * FROM departments WHERE id=?", (oid,))
+        if not d:
+            return
+        label, detail = d[0]["name"], d[0]["code"] or ""
+        tables = [("departments", d)]
+        fix = [("employees", "department_id", oid, _ids(_rows("SELECT id FROM employees WHERE department_id=?", (oid,))))]
+    elif kind == "user":
+        u = _rows("SELECT * FROM users WHERE id=?", (oid,))
+        if not u:
+            return
+        label, detail = u[0]["username"], f"role: {u[0]['role']}"
+        tables = [("users", u)]
+    elif kind == "role":
+        r = _rows("SELECT * FROM roles WHERE key=?", (oid,))
+        if not r:
+            return
+        label, detail = r[0]["name"], r[0]["description"] or ""
+        tables = [("roles", r)]
+    elif kind == "asset":
+        a = _rows("SELECT * FROM assets WHERE id=?", (oid,))
+        if not a:
+            return
+        label, detail = f"{a[0]['asset_code']} · {a[0]['name']}", a[0]["category"] or ""
+        tables = [("assets", a), ("asset_assignments", _rows("SELECT * FROM asset_assignments WHERE asset_id=?", (oid,)))]
+    elif kind == "payroll":
+        p_ = _rows("SELECT p.*, e.name ename FROM payroll p LEFT JOIN employees e ON e.id=p.employee_id WHERE p.id=?", (oid,))
+        if not p_:
+            return
+        label, detail = f"{p_[0].pop('ename') or 'Employee'} – {p_[0]['month']}", f"net {p_[0]['net']:,.0f}"
+        tables = [("payroll", p_), ("loan_payments", _rows("SELECT * FROM loan_payments WHERE payroll_id=?", (oid,)))]
+    elif kind == "loan":
+        ln = _rows("SELECT l.*, e.name ename FROM loans l LEFT JOIN employees e ON e.id=l.employee_id WHERE l.id=?", (oid,))
+        if not ln:
+            return
+        label, detail = f"{ln[0].pop('ename') or 'Employee'} – loan", f"amount {ln[0]['amount']:,.0f}"
+        tables = [("loans", ln), ("loan_payments", _rows("SELECT * FROM loan_payments WHERE loan_id=?", (oid,)))]
+    elif kind == "leave_type":
+        t = _rows("SELECT * FROM leave_types WHERE id=?", (oid,))
+        if not t:
+            return
+        label, detail = t[0]["name"], f"{t[0]['days_per_year']} days/year"
+        tables = [("leave_types", t)]
+    import json
+    db().execute("INSERT INTO recycle_bin(kind,label,detail,deleted_at,deleted_by,data) VALUES(?,?,?,?,?,?)",
+                 (kind, label, detail, datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                  g.user["username"] if g.get("user") else "", json.dumps({"tables": tables, "fix": fix})))
+
+
+def restore_from_bin(bid):
+    """Put a deleted item back. Returns an error text, or None when it worked."""
+    import json
+    b = q("SELECT * FROM recycle_bin WHERE id=?", (bid,), one=True)
+    if not b:
+        return "This item is no longer in the bin."
+    data = json.loads(b["data"])
+    con = db()
+    try:
+        for table, rows in data["tables"]:
+            have = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+            for r in rows:
+                cols = [c for c in r if c in have]
+                con.execute(f"INSERT INTO {table}({','.join(cols)}) VALUES({','.join('?' * len(cols))})",
+                            [r[c] for c in cols])
+        for table, col, val, ids in data.get("fix", []):
+            if ids:
+                con.execute(f"UPDATE {table} SET {col}=? WHERE {col} IS NULL AND id IN ({_inq(ids)})", [val] + ids)
+        con.execute("DELETE FROM recycle_bin WHERE id=?", (bid,))
+        con.commit()
+    except sqlite3.IntegrityError as e:
+        con.rollback()
+        msg = str(e)
+        if "UNIQUE" in msg:
+            return ("Can't restore: something with the same code / username / name was added after this was deleted. "
+                    "Rename or remove that one first, then restore.")
+        return f"Can't restore: {msg}"
+    return None
+
+
+@app.route("/settings/bin", methods=["GET", "POST"])
+@perm_required("settings")
+def recycle_bin():
+    if request.method == "POST":
+        act, bid = request.form.get("act"), request.form.get("id", type=int)
+        b = q("SELECT * FROM recycle_bin WHERE id=?", (bid,), one=True) if bid else None
+        if act == "restore" and b:
+            err = restore_from_bin(bid)
+            if err:
+                flash(err, "error")
+            else:
+                audit("Restored from bin", f"{BIN_KINDS.get(b['kind'], ('', b['kind']))[1]}: {b['label']}")
+                flash(f"Restored: {b['label']}.", "ok")
+        elif act == "purge" and b:
+            x("DELETE FROM recycle_bin WHERE id=?", (bid,))
+            audit("Deleted forever from bin", f"{b['kind']}: {b['label']}")
+            flash(f"Deleted forever: {b['label']}.", "ok")
+        elif act == "empty":
+            x("DELETE FROM recycle_bin")
+            audit("Emptied recycle bin", "")
+            flash("Recycle bin emptied.", "ok")
+        return redirect(url_for("recycle_bin", kind=request.args.get("kind", "")))
+    kind = request.args.get("kind", "")
+    sql, args = "SELECT id, kind, label, detail, deleted_at, deleted_by FROM recycle_bin", []
+    if kind in BIN_KINDS:
+        sql += " WHERE kind=?"
+        args.append(kind)
+    rows = q(sql + " ORDER BY id DESC", args)
+    counts = {r["kind"]: r["c"] for r in q("SELECT kind, COUNT(*) c FROM recycle_bin GROUP BY kind")}
+    return render_template("recycle_bin.html", rows=rows, counts=counts, kind=kind, kinds=BIN_KINDS)
 
 
 # --------------------------------------------------------------------------- asset import
@@ -3609,6 +3781,7 @@ def asset_delete(aid):
     if a["status"] == "assigned":
         flash("Return this asset before deleting it.", "error")
         return redirect(url_for("asset_view", aid=aid))
+    to_bin("asset", aid)
     x("DELETE FROM assets WHERE id=?", (aid,))
     flash(f"Asset {a['asset_code']} deleted.", "ok")
     return redirect(url_for("assets"))

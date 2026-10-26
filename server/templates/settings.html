@@ -55,6 +55,11 @@
 </div>
 
 <div class="card">
+  <div class="card-head"><h2>🗑️ Recycle Bin</h2><a class="btn sm primary" href="{{ url_for('recycle_bin') }}">Open Recycle Bin</a></div>
+  <p class="muted" style="margin:0">Deleted employees, users, departments, assets, salaries, loans, roles and leave types are kept here and can be restored.
+    <b>{{ bin_count }}</b> item(s) in the bin now.</p>
+</div>
+<div class="card">
   <div class="card-head"><h2>Backup</h2></div>
   <p class="muted" style="margin-top:0">All data is stored in one file, <code>hr.db</code>, in the data folder on the server PC. A full copy is saved automatically every day. Open <b>Database Backups</b> to take a backup now, download one to a USB drive, or restore an older copy.</p>
   <a class="btn primary" href="{{ url_for('backups') }}">💾 Open Database Backups</a>

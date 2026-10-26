@@ -131,7 +131,7 @@
       {% endif %}
       {% if can('settings', 'users', 'backup') %}
         <div class="nav-label">System</div>
-        {% if can('settings') %}{{ nav('settings_page', '⚙️', 'Settings') }}{% endif %}
+        {% if can('settings') %}{{ nav('settings_page', '⚙️', 'Settings') }}{{ nav('recycle_bin', '🗑️', 'Recycle Bin') }}{% endif %}
         {% if can('users') %}
         {{ nav('users', '🔐', 'Users & Logins') }}
         {{ nav('roles_page', '🛡️', 'Roles & Permissions') }}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% block title %}Recycle Bin{% endblock %}
+{% block heading %}🗑️ Recycle Bin{% endblock %}
+{% block actions %}
+  {% if rows %}<form method="post" onsubmit="return confirm('Delete EVERYTHING in the recycle bin forever? This cannot be undone.')">{{ csrf() }}
+    <input type="hidden" name="act" value="empty"><button class="btn danger">Empty bin</button></form>{% endif %}
+{% endblock %}
+{% block content %}
+<div class="note">Everything deleted in the HR system – employees, users, departments, assets, salary rows, loans, roles and leave types – comes here first.
+  Click <b>Restore</b> to bring it back exactly as it was (an employee comes back with their attendance, leaves, salaries and loans).</div>
+<div class="bin-filter">
+  <a class="{{ 'on' if not kind }}" href="{{ url_for('recycle_bin') }}">All <b>{{ counts.values()|sum }}</b></a>
+  {% for k, (ic, name) in kinds.items() %}{% if counts.get(k) %}
+  <a class="{{ 'on' if kind == k }}" href="{{ url_for('recycle_bin', kind=k) }}">{{ ic }} {{ name }} <b>{{ counts[k] }}</b></a>{% endif %}{% endfor %}
+</div>
+<div class="card">
+  {% if rows %}
+  <div class="table-wrap"><table class="bin-table">
+    <thead><tr><th>Item</th><th>Type</th><th>Deleted</th><th>By</th><th style="width:220px"></th></tr></thead>
+    <tbody>
+    {% for r in rows %}{% set k = kinds.get(r.kind, ('📦', r.kind)) %}
+      <tr style="--i: {{ loop.index0 }}">
+        <td><div class="bin-item"><span class="bin-ic">{{ k[0] }}</span><div><b>{{ r.label }}</b><small>{{ r.detail }}</small></div></div></td>
+        <td><span class="badge">{{ k[1] }}</span></td>
+        <td>{{ r.deleted_at[:16] }}</td><td>{{ r.deleted_by or '—' }}</td>
+        <td><div class="btns">
+          <form method="post">{{ csrf() }}<input type="hidden" name="act" value="restore"><input type="hidden" name="id" value="{{ r.id }}">
+            <button class="btn sm ok">↺ Restore</button></form>
+          <form method="post" onsubmit="return confirm('Delete {{ r.label|replace("'", "") }} forever? This cannot be undone.')">{{ csrf() }}
+            <input type="hidden" name="act" value="purge"><input type="hidden" name="id" value="{{ r.id }}">
+            <button class="btn sm danger">Delete forever</button></form>
+        </div></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <div class="bin-empty"><div>🗑️</div><b>The recycle bin is empty</b><small>Anything you delete will appear here so you can restore it.</small></div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -9,14 +9,39 @@
 </nav>
 <div class="card">
   <div class="card-head"><h2>➕ Add a user</h2></div>
-  <form method="post" class="inline">
-    {{ csrf() }}<input type="hidden" name="action" value="create">
-    <div><label>Username</label><input name="username" required></div>
-    <div><label>Temporary password</label><input name="password" minlength="6" required></div>
-    <div><label>Role</label><select name="role">
-      {% for r in roles if r.key != 'employee' %}<option value="{{ r.key }}" {{ 'selected' if r.key == 'hr' }}>{{ r.name }}</option>{% endfor %}</select></div>
-    <button class="btn primary">Create user</button>
+  <form method="post" id="newuser">
+    {{ csrf() }}<input type="hidden" name="action" value="create"><input type="hidden" name="custom" value="1">
+    <div class="inline">
+      <div><label>Username</label><input name="username" required></div>
+      <div><label>Temporary password</label><input name="password" minlength="6" required></div>
+      <div><label>Start from role</label><select name="role" id="nu-role">
+        {% for r in roles if r.key != 'employee' %}<option value="{{ r.key }}" {{ 'selected' if r.key == 'hr' }}>{{ r.name }}</option>{% endfor %}</select></div>
+      <button class="btn primary">Create user</button>
+    </div>
+    <div class="card-head" style="margin-top:14px"><h2 style="font-size:15px">🔑 What this user can do</h2>
+      <div class="perm-quick"><button type="button" class="btn sm" data-q="all">All on</button><button type="button" class="btn sm" data-q="view">View only</button><button type="button" class="btn sm" data-q="none">All off</button></div></div>
+    <p class="muted" style="margin:0;font-size:12.5px">Picking a role switches on its permissions. Then turn any switch on or off for this person – for example <b>Mark, edit &amp; import attendance</b> or <b>Generate, edit &amp; pay salaries</b>.</p>
+    <div class="perm-grid">
+      {% for module, items in groups.items() %}
+      <div class="perm-mod"><h4>{{ {'Employees':'👥','Departments':'🏢','Attendance':'✅','Leaves':'🌴','Payroll':'💰','Assets':'💻','System':'⚙️'}.get(module, '•') }} {{ module }}</h4>
+        {% for key, label in items %}
+        <div class="perm-row"><span>{{ label }}</span><label class="tick"><input type="checkbox" name="perm" value="{{ key }}"><span></span></label></div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
   </form>
+  <script>
+  (function () {
+    var RP = {{ role_perms|tojson }}, sel = document.getElementById('nu-role'), boxes = document.querySelectorAll('#newuser input[name=perm]');
+    function apply() { var p = RP[sel.value] || []; boxes.forEach(function (b) { b.checked = p.indexOf(b.value) >= 0; b.disabled = sel.value === 'admin'; }); }
+    sel.addEventListener('change', apply); apply();
+    document.querySelectorAll('#newuser [data-q]').forEach(function (btn) {
+      btn.addEventListener('click', function () { var q = btn.dataset.q;
+        boxes.forEach(function (b) { if (!b.disabled) b.checked = q === 'all' || (q === 'view' && /\.view$/.test(b.value)); }); });
+    });
+  })();
+  </script>
   <p class="muted" style="font-size:12.5px;margin-bottom:0">Only HR staff and managers sign in to this system – employees don't need logins (attendance comes from the biometric machine).
     Use <b>Manager (view only)</b> for managers who should only look at employees, attendance and leaves. Define what each role can do on <a href="{{ url_for('roles_page') }}">Roles & Permissions</a>.</p>
 </div>

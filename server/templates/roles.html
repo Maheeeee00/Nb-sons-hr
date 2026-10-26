@@ -1,8 +1,29 @@
 {% extends "base.html" %}
 {% from "_m.html" import csrf %}
-{% block title %}Roles & permissions{% endblock %}
-{% block heading %}Roles & permissions{% endblock %}
-{% block actions %}<a class="btn" href="{{ url_for('users') }}">🔐 Users & logins</a>{% endblock %}
+{% block title %}Roles & permissions<script>
+document.querySelectorAll('.role-quick button').forEach(function (b) {
+  b.addEventListener('click', function () {
+    document.querySelectorAll('input[name="p_' + b.dataset.role + '"]').forEach(function (i) { if (!i.disabled) i.checked = b.dataset.on === '1'; });
+  });
+});
+</script>
+{% endblock %}
+{% block heading %}Roles & permissions<script>
+document.querySelectorAll('.role-quick button').forEach(function (b) {
+  b.addEventListener('click', function () {
+    document.querySelectorAll('input[name="p_' + b.dataset.role + '"]').forEach(function (i) { if (!i.disabled) i.checked = b.dataset.on === '1'; });
+  });
+});
+</script>
+{% endblock %}
+{% block actions %}<a class="btn" href="{{ url_for('users') }}">🔐 Users & logins</a><script>
+document.querySelectorAll('.role-quick button').forEach(function (b) {
+  b.addEventListener('click', function () {
+    document.querySelectorAll('input[name="p_' + b.dataset.role + '"]').forEach(function (i) { if (!i.disabled) i.checked = b.dataset.on === '1'; });
+  });
+});
+</script>
+{% endblock %}
 {% block content %}
 <nav class="subnav">
   <a href="{{ url_for('users') }}"><span>🔐</span> Users & Logins</a>
@@ -36,7 +57,7 @@
 <form method="post" class="card">
   {{ csrf() }}<input type="hidden" name="action" value="save">
   <div class="card-head">
-    <div><h2>🛡️ Permission matrix</h2><small>Tick what each role may do, then click Save.</small></div>
+    <div><h2>🛡️ Permission matrix</h2><small>Switch on what each role may do, then click Save.</small></div>
     <button class="btn primary">💾 Save permissions</button>
   </div>
   <div class="table-wrap"><table class="perm">
@@ -45,6 +66,7 @@
         {% for r in roles %}<th class="pm-role">
           {% if r.key == 'admin' %}<b>{{ r.name }}</b>{% else %}<input name="name_{{ r.key }}" value="{{ r.name }}" class="rname">{% endif %}
           <small>{{ r.n }} user{{ 's' if r.n != 1 }}{% if r.system %} · built-in{% endif %}</small>
+          {% if r.key != 'admin' %}<div class="role-quick"><button type="button" data-role="{{ r.key }}" data-on="1">All on</button><button type="button" data-role="{{ r.key }}" data-on="0">All off</button></div>{% endif %}
         </th>{% endfor %}</tr>
     </thead>
     <tbody>
@@ -83,4 +105,11 @@
 </div>
 {% endif %}
 <script>function tickAll(k,v){document.querySelectorAll('input[name="p_'+k+'"]').forEach(function(c){c.checked=v})}</script>
+<script>
+document.querySelectorAll('.role-quick button').forEach(function (b) {
+  b.addEventListener('click', function () {
+    document.querySelectorAll('input[name="p_' + b.dataset.role + '"]').forEach(function (i) { if (!i.disabled) i.checked = b.dataset.on === '1'; });
+  });
+});
+</script>
 {% endblock %}
