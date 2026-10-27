@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "1.6.1"
+APP_VERSION = "1.7.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -367,30 +367,46 @@ def leave_day_rate(emp):
     return (basic + allow) / 26
 
 
-def create_leave(emp_id, type_id, start_s, end_s, reason, status="pending", decided_by=None):
-    """Validate and insert a leave. Returns error message or None."""
+def check_leave(emp_id, type_id, start_s, end_s, exclude_id=None):
+    """Validate leave dates/type/balance. Returns (error, leave_type, start, end, days)."""
     start, end = parse_date(start_s), parse_date(end_s)
     if not start or not end:
-        return "Please choose valid start and end dates."
+        return "Please choose valid start and end dates.", None, None, None, 0
     if end < start:
-        return "End date cannot be before start date."
+        return "End date cannot be before start date.", None, None, None, 0
     if start.year != end.year:
-        return "A leave cannot span two calendar years. Please split it into two requests."
+        return "A leave cannot span two calendar years. Please split it into two requests.", None, None, None, 0
     lt = q("SELECT * FROM leave_types WHERE id=?", (type_id,), one=True)
     if not lt:
-        return "Please choose a leave type."
+        return "Please choose a leave type.", None, None, None, 0
     days = sum(1 for d in daterange(start, end) if is_workday(d))
     if days == 0:
-        return "The selected dates are all weekly off days."
+        return "The selected dates are all weekly off days.", None, None, None, 0
     overlap = q("""SELECT 1 FROM leaves WHERE employee_id=? AND status IN ('pending','approved')
-                   AND start_date<=? AND end_date>=?""", (emp_id, end.isoformat(), start.isoformat()), one=True)
+                   AND start_date<=? AND end_date>=? AND id<>?""",
+                (emp_id, end.isoformat(), start.isoformat(), exclude_id or 0), one=True)
     if overlap:
-        return "These dates overlap with another pending or approved leave."
+        return "These dates overlap with another pending or approved leave.", None, None, None, 0
     if lt["days_per_year"] and lt["days_per_year"] > 0:
         bal = next(b for b in leave_balances(emp_id, start.year) if b["id"] == lt["id"])
-        if bal["used"] + bal["pending"] + days > lt["days_per_year"]:
-            left = lt["days_per_year"] - bal["used"] - bal["pending"]
-            return f"Not enough {lt['name']} leave balance. Available: {left:g} day(s), requested: {days}."
+        taken = bal["used"] + bal["pending"]
+        if exclude_id:
+            old = q("SELECT * FROM leaves WHERE id=?", (exclude_id,), one=True)
+            if old and old["leave_type_id"] == lt["id"] and old["start_date"][:4] == str(start.year) \
+                    and old["status"] in ("approved", "pending"):
+                taken -= old["days"]
+        if taken + days > lt["days_per_year"]:
+            left = lt["days_per_year"] - taken
+            return (f"Not enough {lt['name']} leave balance. Available: {left:g} day(s), requested: {days}.",
+                    None, None, None, 0)
+    return None, lt, start, end, days
+
+
+def create_leave(emp_id, type_id, start_s, end_s, reason, status="pending", decided_by=None):
+    """Validate and insert a leave. Returns error message or None."""
+    err, lt, start, end, days = check_leave(emp_id, type_id, start_s, end_s)
+    if err:
+        return err
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lid = x("""INSERT INTO leaves(employee_id,leave_type_id,start_date,end_date,days,reason,status,applied_on,
                decided_by,decided_on) VALUES(?,?,?,?,?,?,?,?,?,?)""",
@@ -587,7 +603,7 @@ AUDIT_NAMES = {
     "employee_import_confirm": "Imported employees", "department_new": "Saved department",
     "departments_manage": "Changed departments", "department_delete": "Deleted department",
     "attendance": "Marked attendance", "attendance_mark": "Quick-marked attendance", "attendance_manage": "Edited attendance",
-    "attendance_import_confirm": "Imported attendance", "leaves": "Recorded leave", "leave_decide": "Leave decision",
+    "attendance_import_confirm": "Imported attendance", "leaves": "Recorded leave", "leave_decide": "Leave decision", "leave_edit": "Edited leave",
     "payroll_generate": "Generated payroll", "payroll_edit": "Edited salary", "payroll_status": "Changed salary status",
     "payroll_pay_all": "Marked all salaries paid", "payroll_delete": "Deleted salary row",
     "loans": "Gave a loan", "loan_view": "Changed a loan", "settings_page": "Changed settings", "recycle_bin": "Recycle bin",
@@ -2423,8 +2439,22 @@ def leaves():
         sql += " WHERE l.status=?"
         args.append(status)
     rows = q(sql + " ORDER BY l.start_date DESC, l.id DESC LIMIT 500", args)
-    emps = q("SELECT id, name, emp_code FROM employees WHERE status='active' ORDER BY name")
-    return render_template("leaves.html", rows=rows, status=status, emps=emps,
+    emps = q("""SELECT e.id, e.name, e.emp_code, d.name dept FROM employees e LEFT JOIN departments d ON d.id=e.department_id
+                WHERE e.status='active' ORDER BY e.name""")
+    today = date.today()
+    t = today.isoformat()
+    month = today.strftime("%Y-%m")
+    stats = {
+        "pending": q("SELECT COUNT(*) c FROM leaves WHERE status='pending'", one=True)["c"],
+        "on_leave": q("""SELECT e.name FROM leaves l JOIN employees e ON e.id=l.employee_id WHERE l.status='approved'
+                         AND l.start_date<=? AND l.end_date>=? ORDER BY e.name""", (t, t)),
+        "upcoming": q("""SELECT COUNT(*) c FROM leaves WHERE status='approved' AND start_date>? AND start_date<=?""",
+                      (t, (today + timedelta(days=7)).isoformat()), one=True)["c"],
+        "month_days": q("""SELECT COALESCE(SUM(days),0) s FROM leaves WHERE status='approved' AND substr(start_date,1,7)=?""",
+                        (month,), one=True)["s"],
+    }
+    counts = {r["status"]: r["c"] for r in q("SELECT status, COUNT(*) c FROM leaves GROUP BY status")}
+    return render_template("leaves.html", rows=rows, status=status, emps=emps, stats=stats, counts=counts, today=today,
                            types=q("SELECT * FROM leave_types ORDER BY name"))
 
 
@@ -2448,6 +2478,46 @@ def leave_decide(lid):
         remove_leave_attendance(lv)
         flash("Approved leave cancelled and attendance cleared for those days.", "ok")
     return redirect(request.referrer or url_for("leaves"))
+
+
+@app.route("/leaves/<int:lid>/edit", methods=["GET", "POST"])
+@perm_required("leaves.approve")
+def leave_edit(lid):
+    lv = q("""SELECT l.*, e.name, e.emp_code FROM leaves l JOIN employees e ON e.id=l.employee_id WHERE l.id=?""",
+           (lid,), one=True) or abort(404)
+    if lv["status"] not in ("pending", "approved"):
+        flash("Only pending or approved leaves can be edited.", "error")
+        return redirect(url_for("leaves"))
+    if request.method == "POST":
+        err, lt, start, end, days = check_leave(lv["employee_id"], request.form.get("leave_type_id"),
+                                                request.form.get("start_date"), request.form.get("end_date"), exclude_id=lid)
+        if err:
+            flash(err, "error")
+            return redirect(url_for("leave_edit", lid=lid))
+        if lv["status"] == "approved":
+            remove_leave_attendance(lv)
+        x("""UPDATE leaves SET leave_type_id=?, start_date=?, end_date=?, days=?, reason=?, remarks=? WHERE id=?""",
+          (lt["id"], start.isoformat(), end.isoformat(), days, request.form.get("reason", "").strip(),
+           request.form.get("remarks", "").strip() or lv["remarks"], lid))
+        if lv["status"] == "approved":
+            apply_leave_attendance(q("SELECT * FROM leaves WHERE id=?", (lid,), one=True))
+        flash(f"Leave updated for {lv['name']}: {nicedate(start.isoformat())} – {nicedate(end.isoformat())} ({days} day(s)).", "ok")
+        return redirect(url_for("leaves", status=lv["status"]))
+    return render_template("leave_edit.html", lv=lv, types=q("SELECT * FROM leave_types ORDER BY name"),
+                           balances=leave_balances(lv["employee_id"], int(lv["start_date"][:4])))
+
+
+@app.route("/api/unmarked")
+@perm_required("leaves.approve")
+def api_unmarked():
+    """Active employees with no attendance (and no leave) on a date – to pick who to give leave."""
+    d = (parse_date(request.args.get("date")) or date.today()).isoformat()
+    rows = q("""SELECT id FROM employees e WHERE e.status='active'
+                AND NOT EXISTS (SELECT 1 FROM attendance a WHERE a.employee_id=e.id AND a.date=?)
+                AND NOT EXISTS (SELECT 1 FROM leaves l WHERE l.employee_id=e.id AND l.status IN ('pending','approved')
+                                AND l.start_date<=? AND l.end_date>=?)""", (d, d, d))
+    absent = q("SELECT employee_id FROM attendance WHERE date=? AND status='absent'", (d,))
+    return {"date": d, "unmarked": [r["id"] for r in rows], "absent": [r["employee_id"] for r in absent]}
 
 
 @app.route("/my/leaves", methods=["GET", "POST"])

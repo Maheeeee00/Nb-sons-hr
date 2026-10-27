@@ -3,55 +3,110 @@
 {% block title %}Leaves{% endblock %}
 {% block heading %}Leaves{% endblock %}
 {% block content %}
+{% set TC = ['#16a34a', '#2563eb', '#f59e0b', '#8b5cf6', '#ec4899', '#0ea5e9', '#64748b'] %}
+
+<div class="lv-kpis">
+  <a class="lv-kpi k1" href="{{ url_for('leaves', status='pending') }}"><i>⏳</i><b data-count="{{ stats.pending }}">0</b><span>Waiting for approval</span></a>
+  <div class="lv-kpi k2"><i>🌴</i><b data-count="{{ stats.on_leave|length }}">0</b><span>On leave today{% if stats.on_leave %}: {{ stats.on_leave|map(attribute='name')|join(', ')|truncate(40) }}{% endif %}</span></div>
+  <div class="lv-kpi k3"><i>📅</i><b data-count="{{ stats.upcoming }}">0</b><span>Starting in next 7 days</span></div>
+  <div class="lv-kpi k4"><i>📊</i><b data-count="{{ stats.month_days|int }}">0</b><span>Leave days this month</span></div>
+</div>
+
 {% if can('leaves.approve') %}
-<details class="card" open>
-  <summary style="cursor:pointer;font-weight:600">➕ Record a leave for an employee (approved immediately, added to attendance)</summary>
-  <form method="post" class="form-grid" style="margin-top:14px">
+<div class="card lv-new">
+  <div class="card-head"><h2>➕ Record a leave</h2><small class="muted">Approved immediately and filled into attendance</small></div>
+  <form method="post" id="lvform">
     {{ csrf() }}
-    <div><label>Employee</label><select name="employee_id" required><option value="">Choose…</option>
-      {% for e in emps %}<option value="{{ e.id }}">{{ e.name }} ({{ e.emp_code }})</option>{% endfor %}</select></div>
-    <div><label>Leave type</label><select name="leave_type_id" required>
-      {% for t in types %}<option value="{{ t.id }}">{{ t.name }}{% if not t.paid %} (unpaid){% endif %}</option>{% endfor %}</select></div>
-    <div><label>From</label><input type="date" name="start_date" required></div>
-    <div><label>To</label><input type="date" name="end_date" required></div>
-    <div class="full"><label>Reason</label><input name="reason"></div>
-    <div><button class="btn primary">Save leave</button></div>
+    <div class="lv-grid">
+      <div class="lv-pick">
+        <label>Employee</label>
+        <div class="lv-search"><span>🔍</span><input id="lv-q" placeholder="Search name or code…" autocomplete="off"></div>
+        <label class="lv-only"><span class="tick"><input type="checkbox" id="lv-unmarked"><span></span></span>
+          <span>Only employees <b>not marked</b> on the From date</span></label>
+        <select name="employee_id" id="lv-emp" size="7" required>
+          {% for e in emps %}<option value="{{ e.id }}" data-s="{{ (e.name ~ ' ' ~ e.emp_code ~ ' ' ~ (e.dept or ''))|lower }}">{{ e.name }} · {{ e.emp_code }}{% if e.dept %} · {{ e.dept }}{% endif %}</option>{% endfor %}
+        </select>
+        <small class="muted" id="lv-count">{{ emps|length }} employee(s)</small>
+      </div>
+      <div class="lv-fields">
+        <div><label>Leave type</label><select name="leave_type_id" required>
+          {% for t in types %}<option value="{{ t.id }}">{{ t.name }}{% if t.days_per_year %} ({{ t.days_per_year }}/year){% endif %}{% if not t.paid %} – unpaid{% endif %}</option>{% endfor %}</select></div>
+        <div class="lv-dates"><div><label>From</label><input type="date" name="start_date" id="lv-from" required value="{{ today.isoformat() }}"></div>
+          <div><label>To</label><input type="date" name="end_date" id="lv-to" required value="{{ today.isoformat() }}"></div></div>
+        <div><label>Reason</label><input name="reason" placeholder="e.g. Sick, family function…"></div>
+        <button class="btn primary big lv-save">✔ Save leave</button>
+      </div>
+    </div>
   </form>
-</details>
+</div>
 {% endif %}
 
-<div class="card">
-  <div class="tabs">
-    {% for s, l in [('pending','Pending'),('approved','Approved'),('rejected','Rejected'),('cancelled','Cancelled'),('all','All')] %}
-      <a href="{{ url_for('leaves', status=s) }}" class="{{ 'on' if status == s }}">{{ l }}{% if s == 'pending' and pending_leaves %} ({{ pending_leaves }}){% endif %}</a>
+<div class="card lv-list">
+  <div class="lv-tabs">
+    {% for s, l, ic in [('pending','Pending','⏳'),('approved','Approved','✅'),('rejected','Rejected','⛔'),('cancelled','Cancelled','↩️'),('all','All','📋')] %}
+      <a href="{{ url_for('leaves', status=s) }}" class="{{ 'on' if status == s }}">{{ ic }} {{ l }}
+        <b>{{ counts.values()|sum if s == 'all' else counts.get(s, 0) }}</b></a>
     {% endfor %}
   </div>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th class="num">Days</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead>
-    <tbody>
-    {% for l in rows %}
-      <tr>
-        <td><b>{{ l.name }}</b><br><small>{{ l.emp_code }} · applied {{ l.applied_on or '' }}</small></td>
-        <td>{{ l.tname }}{% if not l.paid %} <small>(unpaid)</small>{% endif %}</td>
-        <td>{{ l.start_date|nicedate }}</td><td>{{ l.end_date|nicedate }}</td><td class="num">{{ l.days|num }}</td>
-        <td class="wrap">{{ l.reason or '—' }}{% if l.remarks %}<br><small>HR: {{ l.remarks }}</small>{% endif %}</td>
-        <td>{{ badge(l.status) }}{% if l.decided_by %}<br><small>by {{ l.decided_by }}</small>{% endif %}</td>
-        <td>
-          {% if l.status == 'pending' %}
-          <form method="post" action="{{ url_for('leave_decide', lid=l.id) }}" class="inline">
-            {{ csrf() }}<input name="remarks" placeholder="Remarks (optional)" style="min-width:140px">
-            <button name="action" value="approve" class="btn sm ok">Approve</button>
-            <button name="action" value="reject" class="btn sm danger">Reject</button>
+  {% if rows %}
+  <div class="lv-rows">
+  {% for l in rows %}
+    <div class="lv-row st-{{ l.status }}" style="--i: {{ loop.index0 }}">
+      <div class="lv-who"><span class="rp-avatar">{{ l.name.split()[:2]|map('first')|join|upper }}</span>
+        <div><b>{{ l.name }}</b><small>{{ l.emp_code }} · applied {{ (l.applied_on or '')[:10] }}</small></div></div>
+      <div class="lv-type"><span class="lv-chip" style="--c: {{ TC[l.leave_type_id % 7] }}">{{ l.tname }}</span>{% if not l.paid %}<small>unpaid</small>{% endif %}</div>
+      <div class="lv-when"><b>{{ l.start_date|nicedate }}</b>{% if l.end_date != l.start_date %} → <b>{{ l.end_date|nicedate }}</b>{% endif %}
+        <span class="lv-days">{{ l.days|num }} day{{ '' if l.days == 1 else 's' }}</span></div>
+      <div class="lv-reason">{{ l.reason or '—' }}{% if l.remarks %}<small>HR: {{ l.remarks }}</small>{% endif %}</div>
+      <div class="lv-status"><span class="lv-st">{{ l.status|title }}</span>{% if l.decided_by %}<small>by {{ l.decided_by }}</small>{% endif %}</div>
+      <div class="lv-act">
+        {% if can('leaves.approve') %}
+        {% if l.status == 'pending' %}
+          <form method="post" action="{{ url_for('leave_decide', lid=l.id) }}">
+            {{ csrf() }}<input name="remarks" placeholder="Remarks (optional)" class="lv-rem">
+            <div class="btns"><button name="action" value="approve" class="lvb lvb-ok">✔ Approve</button>
+              <button name="action" value="reject" class="lvb lvb-no">✖ Reject</button>
+              <a class="lvb lvb-edit" href="{{ url_for('leave_edit', lid=l.id) }}">✏️ Edit</a></div>
           </form>
-          {% elif l.status == 'approved' %}
-          <form method="post" action="{{ url_for('leave_decide', lid=l.id) }}" onsubmit="return confirm('Cancel this approved leave?')">
-            {{ csrf() }}<button name="action" value="cancel" class="btn sm">Cancel leave</button>
-          </form>
-          {% endif %}
-        </td>
-      </tr>
-    {% else %}<tr><td colspan="8" class="empty">No {{ status if status != 'all' else '' }} leaves recorded.</td></tr>{% endfor %}
-    </tbody>
-  </table></div>
+        {% elif l.status == 'approved' %}
+          <div class="btns"><a class="lvb lvb-edit" href="{{ url_for('leave_edit', lid=l.id) }}">✏️ Edit</a>
+            <form method="post" action="{{ url_for('leave_decide', lid=l.id) }}" onsubmit="return confirm('Cancel this approved leave? Those days will be cleared from attendance.')">
+              {{ csrf() }}<button name="action" value="cancel" class="lvb lvb-cancel">↩ Cancel</button></form></div>
+        {% else %}<span class="muted">—</span>{% endif %}
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+  </div>
+  {% else %}
+  <div class="bin-empty"><div>🌴</div><b>No {{ status if status != 'all' else '' }} leaves</b><small>Recorded and requested leaves will appear here.</small></div>
+  {% endif %}
 </div>
+<script>
+(function () {
+  document.querySelectorAll('[data-count]').forEach(function (el) {
+    var end = parseFloat(el.dataset.count) || 0, t0 = null;
+    function st(ts) { if (!t0) t0 = ts; var k = Math.min((ts - t0) / 800, 1); el.textContent = Math.round(end * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(st); }
+    requestAnimationFrame(st);
+  });
+  var sel = document.getElementById('lv-emp'); if (!sel) return;
+  var qi = document.getElementById('lv-q'), only = document.getElementById('lv-unmarked'), from = document.getElementById('lv-from'),
+      to = document.getElementById('lv-to'), cnt = document.getElementById('lv-count'), allowed = null;
+  function apply() {
+    var t = qi.value.trim().toLowerCase(), n = 0;
+    Array.prototype.forEach.call(sel.options, function (o) {
+      var ok = (!t || o.dataset.s.indexOf(t) >= 0) && (!only.checked || !allowed || allowed.indexOf(+o.value) >= 0);
+      o.hidden = !ok; if (ok) n++; if (!ok && o.selected) o.selected = false;
+    });
+    cnt.textContent = n + ' employee(s)' + (only.checked ? ' not marked on ' + from.value : '');
+  }
+  function load() {
+    if (!only.checked) { allowed = null; apply(); return; }
+    fetch('{{ url_for("api_unmarked") }}?date=' + encodeURIComponent(from.value), {credentials: 'same-origin'})
+      .then(function (r) { return r.json(); }).then(function (j) { allowed = j.unmarked.concat(j.absent); apply(); });
+  }
+  qi.addEventListener('input', apply); only.addEventListener('change', load);
+  from.addEventListener('change', function () { if (!to.value || to.value < from.value) to.value = from.value; load(); });
+})();
+</script>
 {% endblock %}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% block title %}Edit leave{% endblock %}
+{% block heading %}✏️ Edit leave{% endblock %}
+{% block actions %}<a class="btn" href="{{ url_for('leaves', status=lv.status) }}">← Back to leaves</a>{% endblock %}
+{% block content %}
+<div class="grid g2">
+  <form method="post" class="card lv-new">
+    {{ csrf() }}
+    <div class="lv-who" style="margin-bottom:14px"><span class="rp-avatar">{{ lv.name.split()[:2]|map('first')|join|upper }}</span>
+      <div><b>{{ lv.name }}</b><small>{{ lv.emp_code }} · status: {{ lv.status|title }}</small></div></div>
+    <div class="lv-fields">
+      <div><label>Leave type</label><select name="leave_type_id" required>
+        {% for t in types %}<option value="{{ t.id }}" {{ 'selected' if t.id == lv.leave_type_id }}>{{ t.name }}{% if t.days_per_year %} ({{ t.days_per_year }}/year){% endif %}</option>{% endfor %}</select></div>
+      <div class="lv-dates"><div><label>From</label><input type="date" name="start_date" value="{{ lv.start_date }}" required></div>
+        <div><label>To</label><input type="date" name="end_date" value="{{ lv.end_date }}" required></div></div>
+      <div><label>Reason</label><input name="reason" value="{{ lv.reason or '' }}"></div>
+      <div><label>HR remarks</label><input name="remarks" value="{{ lv.remarks or '' }}"></div>
+      <button class="btn primary big lv-save">💾 Save changes</button>
+    </div>
+    {% if lv.status == 'approved' %}<p class="muted" style="font-size:12.5px;margin-bottom:0">This leave is approved: attendance for the old dates is cleared and the new dates are marked as Leave automatically.</p>{% endif %}
+  </form>
+  <div class="card">
+    <div class="card-head"><h2>🌴 {{ lv.name }}'s balance {{ lv.start_date[:4] }}</h2></div>
+    <div class="bal">{% for b in balances %}<div><small>{{ b.name }}</small>
+      {% if b.remaining is not none %}<b>{{ b.remaining|num }}</b><small>of {{ b.allowed }} left · {{ b.used|num }} used</small>{% else %}<b>{{ b.used|num }}</b><small>days used</small>{% endif %}</div>{% endfor %}</div>
+  </div>
+</div>
+{% endblock %}
