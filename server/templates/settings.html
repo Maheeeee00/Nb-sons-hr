@@ -56,7 +56,7 @@
   </table></div>
   <form method="post" class="inline" style="margin-top:14px">{{ csrf() }}<input type="hidden" name="form" value="encash">
     <div><label>💵 Unused leave is paid at (per day)</label><select name="encash_basis">
-      {% for k, label in encash_basis.items() %}<option value="{{ k }}" {{ 'selected' if (settings.encash_basis or 'basic30') == k }}>{{ label }}</option>{% endfor %}</select></div>
+      {% for k, label in encash_basis.items() %}<option value="{{ k }}" {{ 'selected' if (settings.encash_basis or 'gross26') == k }}>{{ label }}</option>{% endfor %}</select></div>
     <button class="btn">Save</button>
   </form>
   <p class="muted" style="font-size:12.5px;margin-bottom:0">Leave types marked <b>Pay if unused</b> (e.g. Annual 12, Sick 8) show the payable amount for remaining days on each employee's profile.</p>

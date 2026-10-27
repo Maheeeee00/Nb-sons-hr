@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.6.1"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -134,7 +134,7 @@ DEFAULT_SETTINGS = {
     "office_end": "17:00",
     "grace_minutes": "15",
     "weekly_off": "6",          # comma list of weekday numbers, Monday=0 ... Sunday=6
-    "encash_basis": "basic30",  # unused leave payable per day: basic30 / gross30 / gross26
+    "encash_basis": "gross26",  # unused leave payable per day: salary / 26 (company rule); also basic26 / basic30 / gross30
     "lates_per_day": "0",       # e.g. 3 = every 3 lates deduct 1 day salary; 0 = off
     "idle_minutes": "30",       # auto logout after this many minutes without activity
     "notify_off": "",           # comma list of alert types switched off
@@ -210,6 +210,9 @@ def init_db():
                     (key, name, desc, ",".join(perms)))
     con.execute("""UPDATE roles SET name='No access', description='Cannot sign in – this system is for HR and managers only'
                    WHERE key='employee' AND name='Employee'""")
+    if not con.execute("SELECT 1 FROM settings WHERE key='encash_rule_26'").fetchone():
+        con.execute("UPDATE settings SET value='gross26' WHERE key='encash_basis' AND value='basic30'")
+        con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('encash_rule_26','1')")
     for k, v in DEFAULT_SETTINGS.items():
         con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (k, v))
     ltcols = {r[1] for r in con.execute("PRAGMA table_info(leave_types)")}
@@ -347,18 +350,21 @@ def leave_balances(emp_id, year=None):
     return out
 
 
-ENCASH_BASIS = {"basic30": "Basic salary ÷ 30", "gross30": "(Basic + Allowances) ÷ 30", "gross26": "(Basic + Allowances) ÷ 26"}
+ENCASH_BASIS = {"gross26": "Full salary (Basic + Allowances) ÷ 26", "basic26": "Basic salary ÷ 26",
+                "gross30": "Full salary (Basic + Allowances) ÷ 30", "basic30": "Basic salary ÷ 30"}
 
 
 def leave_day_rate(emp):
     """Salary for one leave day, used to pay out unused (encashable) leave."""
-    basis = get_settings().get("encash_basis") or "basic30"
+    basis = get_settings().get("encash_basis") or "gross26"
     basic, allow = emp["basic_salary"] or 0, emp["allowances"] or 0
+    if basis == "basic30":
+        return basic / 30
+    if basis == "basic26":
+        return basic / 26
     if basis == "gross30":
         return (basic + allow) / 30
-    if basis == "gross26":
-        return (basic + allow) / 26
-    return basic / 30
+    return (basic + allow) / 26
 
 
 def create_leave(emp_id, type_id, start_s, end_s, reason, status="pending", decided_by=None):
@@ -1229,7 +1235,7 @@ def employee_view(eid):
         b["payable"] = round(b["payable_days"] * rate)
     encash_total = sum(b["payable"] for b in bal)
     return render_template("employee_view.html", encash_total=encash_total, day_rate=rate,
-                           encash_label=ENCASH_BASIS.get(get_settings().get("encash_basis") or "basic30"), team=team, emp_loans=emp_loans, e=e, counts=counts, pays=pays, acct=acct, leaves=leaves,
+                           encash_label=ENCASH_BASIS.get(get_settings().get("encash_basis") or "gross26"), team=team, emp_loans=emp_loans, e=e, counts=counts, pays=pays, acct=acct, leaves=leaves,
                            balances=bal, month=month, cal=cal, att_pct=att_pct, tenure=tenure,
                            assets_now=assets_now, assets_past=assets_past, is_head=is_head,
                            prev=shift_month(y, m, -1), next=shift_month(y, m, 1), workdays=workdays_so_far)
