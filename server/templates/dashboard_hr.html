@@ -5,7 +5,6 @@
 {% block crumb %}Dashboard{% endblock %}
 {% block hero %}
 {% call hero() %}
-  {% if can('attendance.manage') %}<a class="hbtn prime" href="{{ url_for('attendance_import') }}">📥 Import biometric attendance</a>{% endif %}
   {% if can('attendance.view', 'attendance.manage') %}<a class="hbtn" href="{{ url_for('attendance_report') }}">📊 Attendance report</a>{% endif %}
   {% if can('employees.manage') %}<a class="hbtn" href="{{ url_for('employee_new') }}">➕ Add employee</a>{% endif %}
   {% if can('assets.manage') %}<a class="hbtn" href="{{ url_for('assets_assign') }}">💻 Assign asset</a>{% endif %}
