@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "1.5.1"
+APP_VERSION = "1.6.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS zkt_punches(
   badge TEXT NOT NULL, punch_time TEXT NOT NULL, PRIMARY KEY(badge, punch_time));
 CREATE TABLE IF NOT EXISTS leave_types(
   id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL COLLATE NOCASE,
-  days_per_year INTEGER DEFAULT 0, paid INTEGER DEFAULT 1);
+  days_per_year INTEGER DEFAULT 0, paid INTEGER DEFAULT 1, encash INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS leaves(
   id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
   leave_type_id INTEGER NOT NULL REFERENCES leave_types(id),
@@ -134,6 +134,7 @@ DEFAULT_SETTINGS = {
     "office_end": "17:00",
     "grace_minutes": "15",
     "weekly_off": "6",          # comma list of weekday numbers, Monday=0 ... Sunday=6
+    "encash_basis": "basic30",  # unused leave payable per day: basic30 / gross30 / gross26
     "lates_per_day": "0",       # e.g. 3 = every 3 lates deduct 1 day salary; 0 = off
     "idle_minutes": "30",       # auto logout after this many minutes without activity
     "notify_off": "",           # comma list of alert types switched off
@@ -211,9 +212,14 @@ def init_db():
                    WHERE key='employee' AND name='Employee'""")
     for k, v in DEFAULT_SETTINGS.items():
         con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (k, v))
+    ltcols = {r[1] for r in con.execute("PRAGMA table_info(leave_types)")}
+    if "encash" not in ltcols:                     # leave encashment: Annual 12 + Sick 8 are paid out if unused
+        con.execute("ALTER TABLE leave_types ADD COLUMN encash INTEGER DEFAULT 0")
+        con.execute("UPDATE leave_types SET encash=1 WHERE name IN ('Annual','Sick')")
+        con.execute("UPDATE leave_types SET days_per_year=12 WHERE name='Annual' AND days_per_year=14")
     if not con.execute("SELECT 1 FROM leave_types").fetchone():
-        con.executemany("INSERT INTO leave_types(name,days_per_year,paid) VALUES(?,?,?)",
-                        [("Annual", 14, 1), ("Casual", 10, 1), ("Sick", 8, 1), ("Unpaid", 0, 0)])
+        con.executemany("INSERT INTO leave_types(name,days_per_year,paid,encash) VALUES(?,?,?,?)",
+                        [("Annual", 12, 1, 1), ("Casual", 10, 1, 0), ("Sick", 8, 1, 1), ("Unpaid", 0, 0, 0)])
     if not con.execute("SELECT 1 FROM departments").fetchone():
         con.executemany("INSERT INTO departments(name) VALUES(?)",
                         [("Administration",), ("Human Resources",), ("Accounts",)])
@@ -334,9 +340,25 @@ def leave_balances(emp_id, year=None):
         pend = q("""SELECT COALESCE(SUM(days),0) s FROM leaves WHERE employee_id=? AND leave_type_id=?
                     AND status='pending' AND substr(start_date,1,4)=?""", (emp_id, t["id"], year), one=True)["s"]
         allowed = t["days_per_year"] or 0
+        remaining = (allowed - used) if allowed > 0 else None
         out.append({"id": t["id"], "name": t["name"], "allowed": allowed, "used": used, "pending": pend,
-                    "paid": t["paid"], "remaining": (allowed - used) if allowed > 0 else None})
+                    "paid": t["paid"], "remaining": remaining, "encash": bool(t["encash"]),
+                    "payable_days": max(remaining or 0, 0) if t["encash"] and remaining is not None else 0})
     return out
+
+
+ENCASH_BASIS = {"basic30": "Basic salary ÷ 30", "gross30": "(Basic + Allowances) ÷ 30", "gross26": "(Basic + Allowances) ÷ 26"}
+
+
+def leave_day_rate(emp):
+    """Salary for one leave day, used to pay out unused (encashable) leave."""
+    basis = get_settings().get("encash_basis") or "basic30"
+    basic, allow = emp["basic_salary"] or 0, emp["allowances"] or 0
+    if basis == "gross30":
+        return (basic + allow) / 30
+    if basis == "gross26":
+        return (basic + allow) / 26
+    return basic / 30
 
 
 def create_leave(emp_id, type_id, start_s, end_s, reason, status="pending", decided_by=None):
@@ -1201,8 +1223,14 @@ def employee_view(eid):
     emp_loans = [dict(r, balance=max(r["amount"] - r["paid"], 0), state=loan_state(r))
                  for r in q(LOAN_SQL + " WHERE l.employee_id=? ORDER BY l.issued_on DESC", (eid,))] \
         if can("payroll.view") else []
-    return render_template("employee_view.html", team=team, emp_loans=emp_loans, e=e, counts=counts, pays=pays, acct=acct, leaves=leaves,
-                           balances=leave_balances(eid), month=month, cal=cal, att_pct=att_pct, tenure=tenure,
+    bal = leave_balances(eid)
+    rate = leave_day_rate(e)
+    for b in bal:
+        b["payable"] = round(b["payable_days"] * rate)
+    encash_total = sum(b["payable"] for b in bal)
+    return render_template("employee_view.html", encash_total=encash_total, day_rate=rate,
+                           encash_label=ENCASH_BASIS.get(get_settings().get("encash_basis") or "basic30"), team=team, emp_loans=emp_loans, e=e, counts=counts, pays=pays, acct=acct, leaves=leaves,
+                           balances=bal, month=month, cal=cal, att_pct=att_pct, tenure=tenure,
                            assets_now=assets_now, assets_past=assets_past, is_head=is_head,
                            prev=shift_month(y, m, -1), next=shift_month(y, m, 1), workdays=workdays_so_far)
 
@@ -2818,18 +2846,24 @@ def settings_page():
             name = request.form.get("name", "").strip()
             days = int(to_float(request.form.get("days_per_year"), 0))
             paid = 1 if request.form.get("paid") else 0
+            enc = 1 if request.form.get("encash") else 0
             tid = request.form.get("id")
             try:
                 if not name:
                     flash("Leave type name is required.", "error")
                 elif tid:
-                    x("UPDATE leave_types SET name=?, days_per_year=?, paid=? WHERE id=?", (name, days, paid, tid))
+                    x("UPDATE leave_types SET name=?, days_per_year=?, paid=?, encash=? WHERE id=?", (name, days, paid, enc, tid))
                     flash("Leave type updated.", "ok")
                 else:
-                    x("INSERT INTO leave_types(name,days_per_year,paid) VALUES(?,?,?)", (name, days, paid))
+                    x("INSERT INTO leave_types(name,days_per_year,paid,encash) VALUES(?,?,?,?)", (name, days, paid, enc))
                     flash("Leave type added.", "ok")
             except sqlite3.IntegrityError:
                 flash("A leave type with that name already exists.", "error")
+        elif form == "encash":
+            b = request.form.get("encash_basis")
+            if b in ENCASH_BASIS:
+                x("INSERT INTO settings(key,value) VALUES('encash_basis',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (b,))
+                flash(f"Unused leave will be paid at {ENCASH_BASIS[b]} per day.", "ok")
         elif form == "leave_type_delete":
             try:
                 if not q("SELECT 1 FROM leaves WHERE leave_type_id=?", (request.form.get("id"),), one=True):
@@ -2839,7 +2873,7 @@ def settings_page():
             except sqlite3.IntegrityError:
                 flash("This leave type is used by existing leaves and can't be deleted. Rename it instead.", "error")
         return redirect(url_for("settings_page"))
-    return render_template("settings.html", bin_count=q("SELECT COUNT(*) c FROM recycle_bin", one=True)["c"], types=q("SELECT * FROM leave_types ORDER BY name"),
+    return render_template("settings.html", encash_basis=ENCASH_BASIS, bin_count=q("SELECT COUNT(*) c FROM recycle_bin", one=True)["c"], types=q("SELECT * FROM leave_types ORDER BY name"),
                            off=weekly_off(), weekdays=WEEKDAYS, lan=lan_address(), pcname=socket.gethostname(),
                            notify_types=NOTIFY_TYPES,
                            notify_off=set((get_settings().get("notify_off") or "").split(",")))

@@ -33,13 +33,14 @@
 <div class="card">
   <div class="card-head"><h2>Leave types</h2></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Name</th><th>Days per year (0 = no limit)</th><th>Paid</th><th></th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Days per year (0 = no limit)</th><th>Paid</th><th>Encashable</th><th></th><th></th></tr></thead>
     <tbody>
     {% for t in types %}{% set f = 'lt%d' % t.id %}
       <tr>
         <td><input form="{{ f }}" name="name" value="{{ t.name }}" required></td>
         <td><input form="{{ f }}" type="number" min="0" name="days_per_year" value="{{ t.days_per_year }}" style="max-width:110px"></td>
         <td><label class="check"><input form="{{ f }}" type="checkbox" name="paid" value="1" {{ 'checked' if t.paid }}>Paid</label></td>
+        <td><label class="check" title="Unused days are paid out in salary"><input form="{{ f }}" type="checkbox" name="encash" value="1" {{ 'checked' if t.encash }}>Pay if unused</label></td>
         <td><form id="{{ f }}" method="post">{{ csrf() }}<input type="hidden" name="form" value="leave_type"><input type="hidden" name="id" value="{{ t.id }}"><button class="btn sm">Save</button></form></td>
         <td><form method="post" onsubmit="return confirm('Delete this leave type?')">{{ csrf() }}<input type="hidden" name="form" value="leave_type_delete"><input type="hidden" name="id" value="{{ t.id }}"><button class="btn sm danger">Delete</button></form></td>
       </tr>
@@ -48,10 +49,17 @@
       <td><input form="ltnew" name="name" placeholder="New leave type, e.g. Maternity" required></td>
       <td><input form="ltnew" type="number" min="0" name="days_per_year" value="0" style="max-width:110px"></td>
       <td><label class="check"><input form="ltnew" type="checkbox" name="paid" value="1" checked>Paid</label></td>
+      <td><label class="check"><input form="ltnew" type="checkbox" name="encash" value="1">Pay if unused</label></td>
       <td><form id="ltnew" method="post">{{ csrf() }}<input type="hidden" name="form" value="leave_type"><button class="btn sm primary">Add</button></form></td><td></td>
     </tr>
     </tbody>
   </table></div>
+  <form method="post" class="inline" style="margin-top:14px">{{ csrf() }}<input type="hidden" name="form" value="encash">
+    <div><label>💵 Unused leave is paid at (per day)</label><select name="encash_basis">
+      {% for k, label in encash_basis.items() %}<option value="{{ k }}" {{ 'selected' if (settings.encash_basis or 'basic30') == k }}>{{ label }}</option>{% endfor %}</select></div>
+    <button class="btn">Save</button>
+  </form>
+  <p class="muted" style="font-size:12.5px;margin-bottom:0">Leave types marked <b>Pay if unused</b> (e.g. Annual 12, Sick 8) show the payable amount for remaining days on each employee's profile.</p>
 </div>
 
 <div class="card">

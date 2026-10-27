@@ -106,11 +106,18 @@
 
   <div class="card">
     <div class="card-head"><h2>🌴 Leave balance {{ today.year }}</h2>{% if can('leaves.view', 'leaves.approve') %}<a href="{{ url_for('leaves', status='all') }}">All leaves</a>{% endif %}</div>
+    {% if can('payroll.view') and balances|selectattr('encash')|list %}
+    <div class="pf-encash">
+      <div><span>💵 Leave encashment payable</span><b>{{ settings.currency }} <span data-count="{{ encash_total }}">0</span></b>
+        <small>{{ (balances|selectattr('encash')|sum(attribute='payable_days'))|num }} unused day(s) × {{ settings.currency }} {{ day_rate|round|int|money }} per day ({{ encash_label }}) · if not used by 31 Dec {{ today.year }}</small></div>
+    </div>
+    {% endif %}
     <div class="bal">
       {% for b in balances %}
         <div><small>{{ b.name }}</small>
-          {% if b.remaining is not none %}<b>{{ b.remaining|num }}</b><small>of {{ b.allowed }} days left</small>
+          {% if b.remaining is not none %}<b>{{ b.remaining|num }}</b><small>of {{ b.allowed }} days left · {{ b.used|num }} used</small>
             <span class="pf-lbar"><i style="--w: {{ ((b.remaining or 0) * 100 / b.allowed) if b.allowed else 0 }}%"></i></span>
+            {% if b.encash and can('payroll.view') %}<span class="pf-pay">💵 {{ settings.currency }} {{ b.payable|money }} <small>payable for {{ b.payable_days|num }} unused day{{ '' if b.payable_days == 1 else 's' }}</small></span>{% endif %}
           {% else %}<b>{{ b.used|num }}</b><small>days used</small>{% endif %}</div>
       {% endfor %}
     </div>
@@ -175,6 +182,6 @@
 </div>
 </div>
 <script>
-document.querySelectorAll(".pf [data-count]").forEach(function(el){var end=parseFloat(el.dataset.count)||0,t0=null;function st(ts){if(!t0)t0=ts;var k=Math.min((ts-t0)/900,1),e=1-Math.pow(1-k,3);el.textContent=Math.round(end*e);if(k<1)requestAnimationFrame(st);}requestAnimationFrame(st);});
+document.querySelectorAll(".pf [data-count]").forEach(function(el){var end=parseFloat(el.dataset.count)||0,t0=null;function st(ts){if(!t0)t0=ts;var k=Math.min((ts-t0)/900,1),e=1-Math.pow(1-k,3);el.textContent=Math.round(end*e).toLocaleString("en-US");if(k<1)requestAnimationFrame(st);}requestAnimationFrame(st);});
 </script>
 {% endblock %}
