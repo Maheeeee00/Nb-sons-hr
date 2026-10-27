@@ -830,3 +830,70 @@ td.t-p{color:#15803d}td.t-l{color:#b45309}td.t-h{color:#c2410c}td.t-a{color:#b91
 .lvb-no{background:linear-gradient(135deg,#f87171,#dc2626);color:#fff;box-shadow:0 4px 10px rgba(220,38,38,.3)}
 .lvb-edit{background:#eef2ff;color:#3730a3;border:1.5px solid #c7d2fe}
 .lvb-cancel{background:#fff7ed;color:#c2410c;border:1.5px solid #fed7aa}
+
+/* =====================================================================
+   GLOBAL MOTION & PROFESSIONAL LOOK (applies to every module)
+   ===================================================================== */
+@keyframes gFade{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes gRow{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+@keyframes gRipple{to{transform:scale(4);opacity:0}}
+@keyframes gShine{from{background-position:-200% 0}to{background-position:200% 0}}
+/* page content glides in, block by block */
+.main>.crumb{animation:gFade .35s ease both}
+.main>.topbar{animation:gFade .4s .04s ease both}
+.main>.subnav,.main>nav.subnav{animation:gFade .4s .08s ease both}
+.main>.card,.main>form.card,.main>.stats,.main>.kpis,.main>.grid,.main>.note,.main>.flash,.main>.deptcards,.main>details.card{animation:gFade .45s ease both}
+.main>*:nth-child(3){animation-delay:.08s}.main>*:nth-child(4){animation-delay:.12s}.main>*:nth-child(5){animation-delay:.16s}
+.main>*:nth-child(6){animation-delay:.2s}.main>*:nth-child(7){animation-delay:.24s}.main>*:nth-child(n+8){animation-delay:.28s}
+.grid>.card{animation:gFade .45s ease both}.grid>.card:nth-child(2){animation-delay:.08s}.grid>.card:nth-child(3){animation-delay:.14s}.grid>.card:nth-child(4){animation-delay:.2s}
+/* cards */
+.card{transition:box-shadow .25s,transform .25s,border-color .25s}
+.card:hover{box-shadow:0 12px 30px rgba(15,42,68,.09)}
+.card-head h2{letter-spacing:-.01em}
+/* stat tiles */
+.stats .stat{animation:gFade .45s ease both;position:relative;overflow:hidden;border-top:3px solid #e2e8f0}
+.stats .stat:nth-child(2){animation-delay:.05s}.stats .stat:nth-child(3){animation-delay:.1s}.stats .stat:nth-child(4){animation-delay:.15s}.stats .stat:nth-child(5){animation-delay:.2s}.stats .stat:nth-child(6){animation-delay:.25s}
+.stat.ok{border-top-color:#22c55e}.stat.warn{border-top-color:#f59e0b}.stat.bad{border-top-color:#ef4444}.stat.info{border-top-color:#3b82f6}
+.stat::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.55) 50%,transparent 70%);background-size:200% 100%;opacity:0;pointer-events:none}
+.stat:hover::after{opacity:1;animation:gShine .9s ease}
+.kpi{animation:gFade .45s ease both}
+/* tables: rows fill in, nicer hover */
+table tbody tr.g-in{animation:gRow .35s ease both}
+table tbody tr{transition:background .15s}
+table tbody tr:hover td{background:#f6fafd}
+th{background:#f8fafc}
+/* buttons */
+.btn{position:relative;overflow:hidden;font-weight:700;border-radius:9px;transition:transform .15s,box-shadow .2s,background .2s,filter .2s,border-color .2s}
+.btn:hover{transform:translateY(-1px);box-shadow:0 6px 14px rgba(15,42,68,.12)}
+.btn:active{transform:translateY(0) scale(.97)}
+.btn.primary{background:linear-gradient(135deg,#14b8a6,#0e7c86);border-color:transparent;color:#fff;box-shadow:0 5px 14px rgba(14,124,134,.3)}
+.btn.primary:hover{filter:brightness(1.07);box-shadow:0 9px 20px rgba(14,124,134,.38)}
+.btn.danger{background:#fff5f5;border-color:#fecaca;color:#b91c1c}
+.btn.danger:hover{background:linear-gradient(135deg,#f87171,#dc2626);color:#fff;border-color:transparent;box-shadow:0 6px 16px rgba(220,38,38,.3)}
+.btn.ok{background:#f0fdf4;border-color:#bbf7d0;color:#15803d}
+.btn.ok:hover{background:linear-gradient(135deg,#22c55e,#15803d);color:#fff;border-color:transparent;box-shadow:0 6px 16px rgba(22,163,74,.3)}
+.btn .g-rip{position:absolute;border-radius:50%;background:rgba(255,255,255,.55);transform:scale(0);animation:gRipple .6s linear;pointer-events:none}
+.btn:not(.primary):not(:hover) .g-rip{background:rgba(14,124,134,.25)}
+button[disabled],.btn[disabled]{opacity:.6;cursor:not-allowed;transform:none!important}
+/* inputs */
+input,select,textarea{transition:border-color .2s,box-shadow .2s,background .2s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#14b8a6;box-shadow:0 0 0 3px rgba(20,184,166,.18)}
+input:hover:not(:focus),select:hover:not(:focus),textarea:hover:not(:focus){border-color:#94a3b8}
+/* sub-navigation tabs */
+.subnav a{transition:background .2s,color .2s,transform .15s}
+.subnav a:hover{transform:translateY(-1px)}
+/* side menu */
+.sidebar nav a{transition:background .2s,transform .2s,color .2s}
+.sidebar nav a:hover{transform:translateX(3px)}
+.sidebar nav a .ic{transition:transform .25s}
+.sidebar nav a:hover .ic{transform:scale(1.18)}
+/* badges & flashes */
+.badge{transition:transform .15s}.badge:hover{transform:scale(1.05)}
+.flash{animation:gFade .4s ease both;border-radius:12px;font-weight:600}
+/* top bar title underline accent */
+.topbar h1{position:relative}
+.topbar h1::after{content:"";display:block;height:3px;width:42px;border-radius:3px;margin-top:6px;background:linear-gradient(90deg,#14b8a6,#0e7c86);animation:gGrowW .6s .2s ease both}
+@keyframes gGrowW{from{width:0}to{width:42px}}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+@media print{*{animation:none!important}}
+td .btns{flex-wrap:nowrap}td .btn.sm{padding:5px 10px}

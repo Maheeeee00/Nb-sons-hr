@@ -262,5 +262,37 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')document.bod
   document.addEventListener('keydown',function(e){if(e.key==='/'&&document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='TEXTAREA'){e.preventDefault();inp.focus()}});
 })();
 </script>
+<script>
+/* global motion: count-up numbers, table rows fill in, button ripple */
+(function () {
+  try {
+    var main = document.querySelector('.main'); if (!main) return;
+    main.querySelectorAll('.stat .v, .kpi .kv2').forEach(function (el) {
+      if (el.querySelector('[data-count]') || el.hasAttribute('data-count') || el.children.length > 1) return;
+      var raw = (el.firstChild && el.firstChild.nodeType === 3) ? el.firstChild.nodeValue : '';
+      var m = raw.trim().match(/^([\d,]+)(\.\d+)?$/); if (!m) return;
+      var end = parseFloat(raw.replace(/,/g, '')); if (!isFinite(end) || end === 0) return;
+      var dec = m[2] ? m[2].length - 1 : 0, comma = raw.indexOf(',') >= 0 || end >= 1000, node = el.firstChild, t0 = null;
+      function fmt(v) { return comma ? v.toLocaleString('en-US', {minimumFractionDigits: dec, maximumFractionDigits: dec}) : v.toFixed(dec); }
+      function st(ts) { if (!t0) t0 = ts; var k = Math.min((ts - t0) / 800, 1), v = end * (1 - Math.pow(1 - k, 3));
+        node.nodeValue = raw.replace(raw.trim(), fmt(k < 1 ? v : end)); if (k < 1) requestAnimationFrame(st); }
+      node.nodeValue = raw.replace(raw.trim(), fmt(0)); requestAnimationFrame(st);
+    });
+    main.querySelectorAll('table').forEach(function (tb) {
+      if (tb.closest('.rp-grid, .mr-grid, .bin-table')) return;
+      tb.querySelectorAll('tbody tr').forEach(function (tr, i) {
+        if (i < 40) { tr.classList.add('g-in'); tr.style.animationDelay = (0.15 + i * 0.03) + 's'; }
+      });
+    });
+    document.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('.btn'); if (!b) return;
+      var r = b.getBoundingClientRect(), d = Math.max(r.width, r.height), sp = document.createElement('span');
+      sp.className = 'g-rip'; sp.style.width = sp.style.height = d + 'px';
+      sp.style.left = (e.clientX - r.left - d / 2) + 'px'; sp.style.top = (e.clientY - r.top - d / 2) + 'px';
+      b.appendChild(sp); setTimeout(function () { sp.remove(); }, 650);
+    });
+  } catch (err) { /* animations are optional */ }
+})();
+</script>
 </body>
 </html>
