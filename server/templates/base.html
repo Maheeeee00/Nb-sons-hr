@@ -294,5 +294,44 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')document.bod
   } catch (err) { /* animations are optional */ }
 })();
 </script>
+<script>
+/* click sounds: soft tick for normal clicks, pop for main actions, low tone for delete/reject */
+(function () {
+  var ON = {{ 'true' if settings.click_sound != '0' else 'false' }};
+  if (!ON) return;
+  var AC = window.AudioContext || window.webkitAudioContext, ctx = null;
+  function tone(freqs, dur, vol, type) {
+    try {
+      ctx = ctx || new AC(); if (ctx.state === 'suspended') ctx.resume();
+      var t = ctx.currentTime;
+      freqs.forEach(function (f, i) {
+        var o = ctx.createOscillator(), g = ctx.createGain(), s = t + i * dur * 0.8;
+        o.type = type || 'sine'; o.frequency.setValueAtTime(f[0], s); o.frequency.exponentialRampToValueAtTime(f[1], s + dur);
+        g.gain.setValueAtTime(0.0001, s); g.gain.exponentialRampToValueAtTime(vol, s + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, s + dur);
+        o.connect(g); g.connect(ctx.destination); o.start(s); o.stop(s + dur + 0.02);
+      });
+    } catch (e) { /* sound is optional */ }
+  }
+  var sounds = {
+    tick: function () { tone([[1500, 900]], 0.045, 0.06, 'sine'); },
+    pop: function () { tone([[660, 700], [990, 1050]], 0.07, 0.07, 'sine'); },
+    danger: function () { tone([[340, 220]], 0.12, 0.08, 'triangle'); },
+    toggle: function () { tone([[1100, 1300]], 0.04, 0.05, 'square'); }
+  };
+  window.nbClick = sounds;
+  var last = 0;
+  document.addEventListener('click', function (e) {
+    var now = Date.now(); if (now - last < 120) return;
+    var el = e.target.closest && e.target.closest('a, button, .btn, summary, label.tick, label.check, .qb, .lvb, input[type=checkbox], input[type=radio], select');
+    if (!el || el.disabled) return;
+    last = now; window.nbClickCount = (window.nbClickCount || 0) + 1;
+    var txt = (el.textContent || '').toLowerCase(), cls = el.className && el.className.baseVal === undefined ? el.className : '';
+    if (/danger|lvb-no|lvb-cancel|qa/.test(cls) || /\b(delete|reject|remove|cancel|empty bin|turn off|logout)\b/.test(txt)) sounds.danger();
+    else if (/primary|lvb-ok|qp|ok\b/.test(cls) || /\b(save|approve|create|add|connect|generate|import|backup now|restore|sign in)\b/.test(txt)) sounds.pop();
+    else if (el.matches('label.tick, label.check, input[type=checkbox], input[type=radio]')) sounds.toggle();
+    else sounds.tick();
+  }, true);
+})();
+</script>
 </body>
 </html>

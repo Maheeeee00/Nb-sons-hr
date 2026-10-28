@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "1.8.1"
+APP_VERSION = "1.9.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -140,6 +140,7 @@ DEFAULT_SETTINGS = {
     "notify_off": "",           # comma list of alert types switched off
     "notify_sound": "1",        # play a sound with alerts
     "notify_loud": "1",         # different, louder sound for important alerts
+    "click_sound": "1",         # soft sound on every click (buttons, menu, tabs)
 }
 
 
@@ -2915,7 +2916,7 @@ def settings_page():
         elif form == "notify":
             off = [t for t, *_ in NOTIFY_TYPES if not request.form.get("n_" + t)]
             x("INSERT OR REPLACE INTO settings(key,value) VALUES('notify_off',?)", (",".join(off),))
-            for k in ("notify_sound", "notify_loud"):
+            for k in ("notify_sound", "notify_loud", "click_sound"):
                 x("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", (k, "1" if request.form.get(k) else "0"))
             flash("Notification settings saved.", "ok")
         elif form == "leave_type":
