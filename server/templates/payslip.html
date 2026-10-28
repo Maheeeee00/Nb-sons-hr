@@ -4,56 +4,99 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Payslip {{ p.emp_code }} {{ p.month }}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<style>
+  @page { size: A4 landscape; margin: 10mm; }
+  body.ps-page{background:#e8edf2;margin:0;padding:24px;font-family:Inter,"Segoe UI",Arial,sans-serif;color:#0f1f33}
+  .ps-tools{max-width:1080px;margin:0 auto 14px;display:flex;gap:8px}
+  .ps{max-width:1080px;margin:0 auto;background:#fff;border-radius:14px;box-shadow:0 18px 40px rgba(15,42,68,.12);overflow:hidden;aspect-ratio:297/200}
+  .ps-band{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:20px 30px;background:linear-gradient(135deg,#0f2a44,#0e7c86);color:#fff}
+  .ps-co{display:flex;align-items:center;gap:16px}
+  .ps-co img{height:56px;background:#fff;border-radius:10px;padding:5px 8px}
+  .ps-co h1{margin:0;font-size:22px;letter-spacing:.01em}.ps-co small{opacity:.85;font-size:12.5px}
+  .ps-title{text-align:right}.ps-title b{display:block;font-size:20px;letter-spacing:.12em}
+  .ps-title span{display:inline-block;margin-top:6px;font-size:13px;font-weight:700;background:rgba(255,255,255,.16);padding:4px 12px;border-radius:20px}
+  .ps-body{padding:20px 30px 18px}
+  .ps-info{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+  .ps-info div{background:#f6f8fb;border:1px solid #e6ebf0;border-radius:10px;padding:8px 12px}
+  .ps-info small{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;font-weight:700}
+  .ps-info b{font-size:14px}
+  .ps-cols{display:grid;grid-template-columns:1fr 1fr .9fr;gap:16px;align-items:start}
+  .ps-tbl{border:1px solid #e6ebf0;border-radius:12px;overflow:hidden}
+  .ps-tbl h3{margin:0;padding:9px 14px;font-size:12.5px;text-transform:uppercase;letter-spacing:.08em;color:#fff}
+  .ps-tbl.earn h3{background:#15803d}.ps-tbl.ded h3{background:#b91c1c}
+  .ps-tbl table{width:100%;border-collapse:collapse}
+  .ps-tbl td{padding:8px 14px;font-size:13.5px;border-bottom:1px solid #f1f5f9}
+  .ps-tbl td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+  .ps-tbl tr.tot td{font-weight:800;background:#f8fafc;border-bottom:0}
+  .ps-sum{display:flex;flex-direction:column;gap:10px}
+  .ps-att{border:1px solid #e6ebf0;border-radius:12px;padding:10px 14px}
+  .ps-att h3{margin:0 0 6px;font-size:12.5px;text-transform:uppercase;letter-spacing:.08em;color:#64748b}
+  .ps-att div{display:flex;justify-content:space-between;font-size:13px;padding:3px 0}
+  .ps-net{border-radius:12px;padding:14px 16px;color:#fff;background:linear-gradient(135deg,#0e7c86,#0f2a44)}
+  .ps-net small{display:block;font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:#ccfbf1!important;font-weight:700}
+  .ps-net b{display:block;font-size:26px;margin-top:2px}
+  .ps-net em{font-style:normal;font-size:11.5px;color:#e2f7f5}
+  .ps-foot{display:flex;justify-content:space-between;align-items:flex-end;margin-top:18px;gap:20px}
+  .ps-rem{font-size:12.5px;color:#475569;max-width:60%}
+  .ps-sign{text-align:center;min-width:220px}
+  .ps-sign div{border-top:1.5px solid #0f1f33;padding-top:6px;font-size:12.5px;font-weight:700;margin-top:38px}
+  .ps-note{text-align:center;font-size:10.5px;color:#94a3b8;margin-top:12px}
+  @media print{
+    body.ps-page{background:#fff;padding:0}.ps-tools{display:none}
+    .ps{box-shadow:none;border-radius:0;max-width:none;aspect-ratio:auto}
+    .ps-band,.ps-tbl h3,.ps-net{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+  @media (max-width:800px){.ps{aspect-ratio:auto}.ps-info{grid-template-columns:1fr 1fr}.ps-cols{grid-template-columns:1fr}}
+</style>
 </head>
-<body class="slip-page">
-<div class="slip-tools">
-  <button class="btn primary" onclick="window.print()">Print / Save as PDF</button>
+<body class="ps-page">
+<div class="ps-tools">
+  <button class="btn primary" onclick="window.print()">🖨️ Print / Save as PDF</button>
   <a class="btn" href="{{ url_for('payroll', month=p.month) if is_hr else url_for('my_payslips') }}">&larr; Back to {{ 'payroll' if is_hr else 'my payslips' }}</a>
   <a class="btn" href="{{ url_for('dashboard') }}">🏠 Dashboard</a>
 </div>
-<div class="slip">
-  <div class="slip-head">
-    <div>
-      <img src="{{ url_for('static', filename='logo.png') }}" alt="" style="height:54px;display:block;margin-bottom:6px">
-      <h1>{{ settings.company_name }}</h1>
-      {% if settings.company_address %}<div class="muted">{{ settings.company_address }}</div>{% endif %}
+<div class="ps">
+  <div class="ps-band">
+    <div class="ps-co"><img src="{{ url_for('static', filename='logo.png') }}" alt="">
+      <div><h1>{{ settings.company_name }}</h1>{% if settings.company_address %}<small>{{ settings.company_address }}</small>{% endif %}</div></div>
+    <div class="ps-title"><b>SALARY SLIP</b><span>{{ p.month|monthname }}</span>
+      <div style="margin-top:6px;font-size:12px;opacity:.9">{% if p.status == 'paid' %}✔ Paid on {{ p.paid_on|nicedate }}{% else %}Draft – not yet paid{% endif %}</div></div>
+  </div>
+  <div class="ps-body">
+    <div class="ps-info">
+      <div><small>Employee</small><b>{{ p.name }}</b></div>
+      <div><small>Employee code</small><b>{{ p.emp_code }}</b></div>
+      <div><small>Designation</small><b>{{ p.designation or '—' }}</b></div>
+      <div><small>Department</small><b>{{ p.dept or '—' }}</b></div>
+      <div><small>CNIC</small><b>{{ p.cnic or '—' }}</b></div>
+      <div><small>Bank account</small><b>{{ p.bank_account or '—' }}</b></div>
+      <div><small>Pay period</small><b>{{ p.month|monthname }}</b></div>
+      <div><small>Payment status</small><b>{{ 'Paid' if p.status == 'paid' else 'Draft' }}</b></div>
     </div>
-    <div style="text-align:right">
-      <div style="font-size:18px;font-weight:700">SALARY SLIP</div>
-      <div>{{ p.month|monthname }}</div>
-      <div>{% if p.status == 'paid' %}Paid on {{ p.paid_on|nicedate }}{% else %}<span class="badge b-draft">Draft</span>{% endif %}</div>
+    <div class="ps-cols">
+      <div class="ps-tbl earn"><h3>Earnings</h3><table>
+        {% for l, v in earnings %}<tr><td>{{ l }}</td><td class="n">{{ v|money }}</td></tr>{% endfor %}
+        <tr class="tot"><td>Gross earnings</td><td class="n">{{ gross|money }}</td></tr></table></div>
+      <div class="ps-tbl ded"><h3>Deductions</h3><table>
+        {% for l, v in deductions %}<tr><td>{{ l }}</td><td class="n">{{ v|money }}</td></tr>{% endfor %}
+        <tr class="tot"><td>Total deductions</td><td class="n">{{ total_ded|money }}</td></tr></table></div>
+      <div class="ps-sum">
+        <div class="ps-att"><h3>Attendance</h3>
+          <div><span>Working days</span><b>{{ p.working_days }}</b></div>
+          <div><span>Present</span><b>{{ p.present_days|num }}</b></div>
+          <div><span>Absent</span><b>{{ p.absent_days|num }}</b></div>
+          {% if p.late_days %}<div><span>Late</span><b>{{ p.late_days }}</b></div>{% endif %}
+          {% if p.unpaid_leave_days %}<div><span>Unpaid leave</span><b>{{ p.unpaid_leave_days|num }}</b></div>{% endif %}
+        </div>
+        <div class="ps-net"><small>Net salary</small><b>{{ settings.currency }} {{ p.net|money }}</b><em>Gross {{ gross|money }} − deductions {{ total_ded|money }}</em></div>
+      </div>
     </div>
+    <div class="ps-foot">
+      <div class="ps-rem">{% if p.remarks %}<b>Remarks:</b> {{ p.remarks }}{% endif %}</div>
+      <div class="ps-sign"><div>Authorized signature</div></div>
+    </div>
+    <div class="ps-note">Computer-generated payslip · {{ settings.company_name }} HR System</div>
   </div>
-  <div class="grid g2" style="margin-bottom:16px">
-    <dl class="kv">
-      <dt>Employee</dt><dd><b>{{ p.name }}</b></dd>
-      <dt>Code</dt><dd>{{ p.emp_code }}</dd>
-      <dt>Designation</dt><dd>{{ p.designation or '—' }}</dd>
-      <dt>Department</dt><dd>{{ p.dept or '—' }}</dd>
-    </dl>
-    <dl class="kv">
-      <dt>CNIC</dt><dd>{{ p.cnic or '—' }}</dd>
-      <dt>Bank account</dt><dd>{{ p.bank_account or '—' }}</dd>
-      <dt>Working days</dt><dd>{{ p.working_days }}</dd>
-      <dt>Present / Absent</dt><dd>{{ p.present_days|num }} / {{ p.absent_days|num }}{% if p.unpaid_leave_days %} · unpaid leave {{ p.unpaid_leave_days|num }}{% endif %}</dd>
-    </dl>
-  </div>
-  <div class="grid g2">
-    <table>
-      <thead><tr><th>Earnings</th><th class="num">{{ settings.currency }}</th></tr></thead>
-      <tbody>{% for l, v in earnings %}<tr><td>{{ l }}</td><td class="num">{{ v|money }}</td></tr>{% endfor %}</tbody>
-      <tfoot><tr><td>Gross earnings</td><td class="num">{{ gross|money }}</td></tr></tfoot>
-    </table>
-    <table>
-      <thead><tr><th>Deductions</th><th class="num">{{ settings.currency }}</th></tr></thead>
-      <tbody>{% for l, v in deductions %}<tr><td>{{ l }}</td><td class="num">{{ v|money }}</td></tr>{% endfor %}</tbody>
-      <tfoot><tr><td>Total deductions</td><td class="num">{{ total_ded|money }}</td></tr></tfoot>
-    </table>
-  </div>
-  <div class="net"><span>Net salary</span><span>{{ settings.currency }} {{ p.net|money }}</span></div>
-  {% if p.remarks %}<p><b>Remarks:</b> {{ p.remarks }}</p>{% endif %}
-  <div class="sign"><div>Employee signature</div><div>Authorized signature</div></div>
-  <p class="muted" style="font-size:11px;text-align:center;margin-top:30px">Computer-generated payslip · {{ settings.company_name }} HR System</p>
 </div>
 </body>
 </html>

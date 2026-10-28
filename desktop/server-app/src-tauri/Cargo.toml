@@ -1,6 +1,6 @@
 [package]
 name = "nbsons-hr-server"
-version = "1.9.1"
+version = "2.0.0"
 description = "NB Sons HR System - Server"
 edition = "2021"
 

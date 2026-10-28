@@ -131,13 +131,20 @@
       {% endif %}
       {% if can('settings', 'users', 'backup') %}
         <div class="nav-label">System</div>
-        {% if can('settings') %}{{ nav('settings_page', '⚙️', 'Settings') }}{{ nav('recycle_bin', '🗑️', 'Recycle Bin') }}{% endif %}
-        {% if can('users') %}
-        {{ nav('users', '🔐', 'Users & Logins') }}
-        {{ nav('roles_page', '🛡️', 'Roles & Permissions') }}
-        {{ nav('activity', '🕵️', 'Activity Log') }}
-        {% endif %}
-        {% if can('backup') %}{{ nav('backups', '💾', 'Database Backups') }}{% endif %}
+        {% set sys_eps = ['settings_page', 'recycle_bin', 'users', 'roles_page', 'activity', 'backups', 'user_perms_page'] %}
+        <details class="navgroup" {{ 'open' if request.endpoint in sys_eps }}>
+          <summary class="{{ 'active' if request.endpoint in sys_eps }}"><span class="ic">⚙️</span><span class="tx">Settings</span><span class="chev">›</span></summary>
+          <div class="sub">
+            {% if can('settings') %}{{ nav('settings_page', '•', 'General Settings') }}{% endif %}
+            {% if can('users') %}
+            {{ nav('users', '•', 'Users & Logins') }}
+            {{ nav('roles_page', '•', 'Roles & Permissions') }}
+            {{ nav('activity', '•', 'Activity Log') }}
+            {% endif %}
+            {% if can('backup') %}{{ nav('backups', '•', 'Database Backups') }}{% endif %}
+            {% if can('settings') %}{{ nav('recycle_bin', '•', 'Recycle Bin') }}{% endif %}
+          </div>
+        </details>
       {% endif %}
       <div class="nav-label">Account</div>
       {{ nav('change_password', '🔑', 'Change Password') }}
