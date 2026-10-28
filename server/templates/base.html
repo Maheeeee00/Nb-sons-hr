@@ -300,23 +300,29 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')document.bod
   var ON = {{ 'true' if settings.click_sound != '0' else 'false' }};
   if (!ON) return;
   var AC = window.AudioContext || window.webkitAudioContext, ctx = null;
-  function tone(freqs, dur, vol, type) {
+  var VOL = {low: 0.12, medium: 0.25, high: 0.45}['{{ settings.click_volume or "high" }}'] || 0.45;
+  function tone(notes, vol, type) {
     try {
       ctx = ctx || new AC(); if (ctx.state === 'suspended') ctx.resume();
-      var t = ctx.currentTime;
-      freqs.forEach(function (f, i) {
-        var o = ctx.createOscillator(), g = ctx.createGain(), s = t + i * dur * 0.8;
-        o.type = type || 'sine'; o.frequency.setValueAtTime(f[0], s); o.frequency.exponentialRampToValueAtTime(f[1], s + dur);
-        g.gain.setValueAtTime(0.0001, s); g.gain.exponentialRampToValueAtTime(vol, s + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, s + dur);
-        o.connect(g); g.connect(ctx.destination); o.start(s); o.stop(s + dur + 0.02);
+      var t0 = ctx.currentTime, master = ctx.createGain(); master.gain.value = VOL; master.connect(ctx.destination);
+      notes.forEach(function (n) {           /* n = [startFreq, endFreq, startAt, duration] */
+        [1, 2].forEach(function (h) {         /* base tone + soft overtone = clearer on laptop speakers */
+          var o = ctx.createOscillator(), g = ctx.createGain(), s = t0 + n[2], d = n[3];
+          o.type = h === 1 ? (type || 'triangle') : 'sine';
+          o.frequency.setValueAtTime(n[0] * h, s); o.frequency.exponentialRampToValueAtTime(n[1] * h, s + d);
+          var peak = (h === 1 ? vol : vol * 0.35);
+          g.gain.setValueAtTime(0.0001, s); g.gain.exponentialRampToValueAtTime(peak, s + 0.006);
+          g.gain.exponentialRampToValueAtTime(0.0001, s + d);
+          o.connect(g); g.connect(master); o.start(s); o.stop(s + d + 0.03);
+        });
       });
     } catch (e) { /* sound is optional */ }
   }
   var sounds = {
-    tick: function () { tone([[1500, 900]], 0.045, 0.06, 'sine'); },
-    pop: function () { tone([[660, 700], [990, 1050]], 0.07, 0.07, 'sine'); },
-    danger: function () { tone([[340, 220]], 0.12, 0.08, 'triangle'); },
-    toggle: function () { tone([[1100, 1300]], 0.04, 0.05, 'square'); }
+    tick: function () { tone([[1200, 950, 0, 0.07]], 0.9, 'triangle'); },
+    pop: function () { tone([[784, 800, 0, 0.09], [1175, 1190, 0.08, 0.13]], 0.9, 'triangle'); },
+    danger: function () { tone([[392, 300, 0, 0.12], [294, 220, 0.1, 0.16]], 1.0, 'triangle'); },
+    toggle: function () { tone([[1500, 1700, 0, 0.05]], 0.7, 'square'); }
   };
   window.nbClick = sounds;
   var last = 0;

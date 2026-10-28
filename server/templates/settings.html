@@ -85,7 +85,13 @@
   <div class="ntypes" style="margin-top:12px;border-top:1px solid #eef2f6;padding-top:12px">
     <label class="check"><input type="checkbox" name="notify_sound" value="1" {{ 'checked' if settings.notify_sound != '0' }}> 🔊 Play a sound with notifications</label>
     <label class="check"><input type="checkbox" name="notify_loud" value="1" {{ 'checked' if settings.notify_loud != '0' }}> 🚨 Use a louder, different sound for important alerts</label>
-    <label class="check"><input type="checkbox" name="click_sound" value="1" {{ 'checked' if settings.click_sound != '0' }}> 🖱️ Play a soft sound on every click (buttons, menu, tabs)</label>
+    <label class="check"><input type="checkbox" name="click_sound" value="1" {{ 'checked' if settings.click_sound != '0' }}> 🖱️ Play a sound on every click (buttons, menu, tabs)</label>
+    <div class="inline" style="margin-top:6px"><div><label>Click sound volume</label><select name="click_volume">
+      {% for v, l in [('high', 'High (clear)'), ('medium', 'Medium'), ('low', 'Low (soft)')] %}<option value="{{ v }}" {{ 'selected' if (settings.click_volume or 'high') == v }}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="btns" style="align-self:flex-end"><button type="button" class="btn sm" onclick="nbClick && nbClick.tick()">▶ Tick</button>
+        <button type="button" class="btn sm" onclick="nbClick && nbClick.pop()">▶ Pop</button>
+        <button type="button" class="btn sm" onclick="nbClick && nbClick.danger()">▶ Low tone</button>
+        <button type="button" class="btn sm" onclick="nbClick && nbClick.toggle()">▶ Switch</button></div></div>
   </div>
   <button class="btn primary" style="margin-top:12px">Save notification settings</button>
 </form>
