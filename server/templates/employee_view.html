@@ -168,11 +168,11 @@
 
   {% if can('assets.view', 'assets.manage') %}
   <div class="card" id="products">
-    <div class="card-head"><h2>📦 Products issued</h2>{% if can('assets.manage') %}<a href="{{ url_for('product_issue', emp=e.id) }}">+ Issue products</a>{% endif %}</div>
+    <div class="card-head"><h2>💊 Medicines issued</h2>{% if can('assets.manage') %}<a href="{{ url_for('product_issue', emp=e.id) }}">+ Issue medicines</a>{% endif %}</div>
     {% if prods_got %}<ul class="plist">{% for m in prods_got %}<li><div class="grow"><b><a href="{{ url_for('product_view', pid=m.product_id) }}">{{ m.pname }}</a></b><small>{{ m.on_date|nicedate }}{% if m.note %} · {{ m.note }}{% endif %}</small></div>
       <span class="badge pm-{{ m.kind }}">{{ '−' if m.kind == 'return' }}{{ m.qty|num }} {{ m.unit }}{{ ' returned' if m.kind == 'return' }}</span></li>{% endfor %}</ul>
     <a href="{{ url_for('product_moves_page', emp=e.id) }}" style="font-size:13px">Full history →</a>
-    {% else %}<p class="muted" style="margin:0">No products issued yet.</p>{% endif %}
+    {% else %}<p class="muted" style="margin:0">No medicines issued yet.</p>{% endif %}
   </div>
   {% endif %}
 

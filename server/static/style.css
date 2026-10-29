@@ -1071,3 +1071,6 @@ td .btns{flex-wrap:nowrap}td .btn.sm{padding:5px 10px}
 .pi-total{margin-top:10px;font-weight:700;color:#0e7c86}
 .pm-in{background:#dcfce7;color:#166534}.pm-issue{background:#e0f2fe;color:#075985}.pm-return{background:#ede9fe;color:#5b21b6}.pm-adjust{background:#f1f5f9;color:#475569}
 .navhint{font-size:10.5px;opacity:.55;margin-left:6px;font-weight:500}
+.nav-sub-label{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;opacity:.6;padding:10px 12px 4px 18px;color:inherit}
+.pr-exp{font-size:11.5px;color:#475569;background:#f1f5f9;border-radius:8px;padding:3px 8px;align-self:flex-start}
+.pr-exp.warn{background:#fef3c7;color:#92400e;font-weight:700}.pr-exp.bad{background:#fee2e2;color:#b91c1c;font-weight:700}

@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "2.3.0"
+APP_VERSION = "2.3.1"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -141,7 +141,7 @@ CREATE TABLE IF NOT EXISTS warnings(
 CREATE TABLE IF NOT EXISTS products(
   id INTEGER PRIMARY KEY, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL, category TEXT, unit TEXT DEFAULT 'pcs',
   price REAL DEFAULT 0, stock REAL DEFAULT 0, min_stock REAL DEFAULT 0, notes TEXT, active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+  batch_no TEXT, expiry TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS product_moves(
   id INTEGER PRIMARY KEY, product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE, kind TEXT NOT NULL,
   qty REAL NOT NULL, employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, employee_name TEXT,
@@ -219,6 +219,10 @@ def init_db():
         con.execute("ALTER TABLE employees ADD COLUMN source TEXT DEFAULT 'manual'")
         con.execute("UPDATE employees SET source='manual' WHERE source IS NULL")
     pcols = {r[1] for r in con.execute("PRAGMA table_info(payroll)")}
+    prcols = {r[1] for r in con.execute("PRAGMA table_info(products)")}
+    for col in ("batch_no", "expiry"):
+        if prcols and col not in prcols:
+            con.execute(f"ALTER TABLE products ADD COLUMN {col} TEXT")
     if "loan_deduction" not in pcols:
         con.execute("ALTER TABLE payroll ADD COLUMN loan_deduction REAL DEFAULT 0")
     if "suggested_deduction" not in pcols:          # deductions are suggested, HR applies them by hand
@@ -675,7 +679,7 @@ AUDIT_NAMES = {
     "increments": "Gave increment / promotion", "increment_undo": "Undid salary change", "settlement_edit": "Final settlement",
     "settlement_delete": "Deleted / reopened settlement", "doc_upload": "Uploaded employee document",
     "doc_delete": "Deleted employee document", "doc_edit": "Edited employee document", "warnings_page": "Issued warning",
-    "warning_update": "Changed warning", "asset_management": "Asset management", "products": "Products (stock)",
+    "warning_update": "Changed warning", "asset_management": "Asset management", "products": "Medicines (products)",
     "product_issue": "Issued products", "product_view": "Changed product", "asset_delete": "Deleted asset", "assets_assign": "Assigned asset", "assets_import": "Imported assets (page)",
 }
 _SKIP_FIELDS = {"csrf", "password", "new", "confirm", "current", "token", "changed"}
@@ -3387,7 +3391,7 @@ def backup():
 # --------------------------------------------------------------------------- recycle bin
 BIN_KINDS = {"employee": ("👤", "Employee"), "department": ("🏢", "Department"), "user": ("🔐", "User login"),
              "role": ("🛡️", "Role"), "asset": ("💻", "Asset"), "payroll": ("💰", "Salary row"),
-             "loan": ("🏦", "Loan"), "leave_type": ("🌴", "Leave type"), "product": ("📦", "Product")}
+             "loan": ("🏦", "Loan"), "leave_type": ("🌴", "Leave type"), "product": ("💊", "Medicine")}
 
 
 def _rows(sql, args=()):
@@ -4245,7 +4249,7 @@ NOTIFY_TYPES = [  # (type, label, permission needed to receive it, important?)
     ("loans_due", "Loan installments due this month", ("payroll.view",), False),
     ("asset_overdue", "Asset not returned on time", ("assets.view", "assets.manage"), False),
     ("birthday", "Birthdays & work anniversaries", ("employees.view",), False),
-    ("low_stock", "Product stock running low", ("assets.view", "assets.manage"), False),
+    ("low_stock", "Medicine stock low / expiring within 60 days", ("assets.view", "assets.manage"), False),
     ("doc_expiry", "Employee document expired / expiring within 30 days", ("employees.view",), False),
     ("holiday", "Public holiday tomorrow", ("attendance.view", "attendance.manage", "leaves.view"), False),
     ("security", "Security: account locked after wrong passwords", ("users",), True),
@@ -4338,6 +4342,12 @@ def build_alerts():
             add("low_stock", f"ls-{pr['id']}-{pr['stock']:g}", "📦 Low stock" if pr["stock"] > 0 else "📦 Out of stock",
                 f"{pr['name']} ({pr['code']}) – {pr['stock']:g} {pr['unit'] or ''} left (minimum {pr['min_stock']:g}).",
                 url_for("product_view", pid=pr["id"]))
+        for pr in q("""SELECT id, name, code, expiry, batch_no FROM products WHERE active=1 AND stock>0 AND expiry IS NOT NULL
+                       AND expiry<>'' AND expiry<=? ORDER BY expiry LIMIT 8""", ((today + timedelta(days=60)).isoformat(),)):
+            gone = pr["expiry"] < t
+            add("low_stock", f"mx-{pr['id']}-{pr['expiry']}", "💊 Medicine expired" if gone else "💊 Medicine expiring soon",
+                f"{pr['name']} ({pr['code']}{', batch ' + pr['batch_no'] if pr['batch_no'] else ''}) – "
+                f"{'expired' if gone else 'expires'} {nicedate(pr['expiry'])}.", url_for("product_view", pid=pr["id"]))
     if "doc_expiry" in allowed:
         for dc in q("""SELECT dc.id, dc.title, dc.expiry, dc.employee_id, e.name FROM emp_documents dc
                        JOIN employees e ON e.id=dc.employee_id WHERE e.status='active' AND dc.expiry IS NOT NULL
@@ -5041,9 +5051,9 @@ def asset_management():
 
 
 # ---------- products (stock items issued to employees by quantity – separate from assets)
-PRODUCT_UNITS = ["pcs", "box", "pack", "dozen", "set", "pair", "bottle", "kg", "litre", "ream", "carton"]
-PRODUCT_CATS = ["Stationery", "Uniform", "Medicine / Samples", "Marketing material", "Mobile SIM / Card", "Safety gear",
-                "Cleaning", "Kitchen", "Spare parts", "Other"]
+PRODUCT_UNITS = ["box", "strip", "tablet", "capsule", "bottle", "vial", "ampoule", "tube", "sachet", "pack", "pcs", "carton"]
+PRODUCT_CATS = ["Tablets", "Capsules", "Syrup", "Injection", "Drops", "Cream / Ointment", "Sachet / Powder",
+                "Physician samples", "Surgical / Disposable", "Other"]
 
 
 def next_product_code():
@@ -5077,19 +5087,21 @@ def products():
         name = request.form.get("name", "").strip()
         code = request.form.get("code", "").strip().upper() or next_product_code()
         if not name:
-            flash("Product name is required.", "error")
+            flash("Medicine name is required.", "error")
         elif q("SELECT 1 FROM products WHERE code=?", (code,), one=True):
             flash(f"Product code {code} is already used.", "error")
         else:
-            pid = x("INSERT INTO products(code,name,category,unit,price,stock,min_stock,notes) VALUES(?,?,?,?,?,0,?,?)",
-                    (code, name, request.form.get("category", "").strip() or None, request.form.get("unit") or "pcs",
+            exp = parse_date(request.form.get("expiry"))
+            pid = x("INSERT INTO products(code,name,category,unit,price,stock,min_stock,notes,batch_no,expiry) VALUES(?,?,?,?,?,0,?,?,?,?)",
+                    (code, name, request.form.get("category", "").strip() or None, request.form.get("unit") or "box",
                      to_float(request.form.get("price"), 0), to_float(request.form.get("min_stock"), 0),
-                     request.form.get("notes", "").strip() or None))
+                     request.form.get("notes", "").strip() or None, request.form.get("batch_no", "").strip() or None,
+                     exp.isoformat() if exp else None))
             opening = to_float(request.form.get("stock"), 0)
             if opening > 0:
                 product_move(pid, "in", opening, note="Opening stock")
                 db().commit()
-            flash(f"Product {code} – {name} added{f' with {opening:g} in stock' if opening else ''}.", "ok")
+            flash(f"Medicine {code} – {name} added{f' with {opening:g} in stock' if opening else ''}.", "ok")
         return redirect(url_for("products"))
     term = request.args.get("q", "").strip()
     cat = request.args.get("cat", "")
@@ -5103,17 +5115,22 @@ def products():
     if cat:
         sql += " AND p.category=?"
         args.append(cat)
+    soon = (date.today() + timedelta(days=60)).isoformat()
     if view == "low":
         sql += " AND p.min_stock>0 AND p.stock<=p.min_stock"
+    elif view == "expiry":
+        sql += " AND p.expiry IS NOT NULL AND p.expiry<>'' AND p.expiry<=?"
+        args.append(soon)
     rows = q(sql + " ORDER BY p.category, p.name", args)
-    allp = q("SELECT stock, price, min_stock FROM products WHERE active=1")
+    allp = q("SELECT stock, price, min_stock, expiry FROM products WHERE active=1")
     month = date.today().strftime("%Y-%m")
     kp = {"count": len(allp), "value": sum((r["stock"] or 0) * (r["price"] or 0) for r in allp),
           "low": sum(1 for r in allp if (r["min_stock"] or 0) > 0 and (r["stock"] or 0) <= r["min_stock"]),
+          "exp": sum(1 for r in allp if r["expiry"] and r["expiry"] <= soon),
           "issued": q("""SELECT COALESCE(SUM(m.qty * p.price),0) v FROM product_moves m JOIN products p ON p.id=m.product_id
                          WHERE m.kind='issue' AND substr(m.on_date,1,7)=?""", (month,), one=True)["v"]}
     cats = q("SELECT category, COUNT(*) c FROM products WHERE active=1 GROUP BY category ORDER BY category")
-    return render_template("products.html", rows=rows, kp=kp, term=term, cat=cat, view=view, cats=cats,
+    return render_template("products.html", soon=soon, today_s=date.today().isoformat(), rows=rows, kp=kp, term=term, cat=cat, view=view, cats=cats,
                            all_cats=product_cats(), units=PRODUCT_UNITS, code=next_product_code())
 
 
@@ -5208,10 +5225,12 @@ def product_view(pid):
                 db().commit()
                 flash(f"{qty:g} {pr['unit']} returned to stock.", "ok")
         elif act == "edit":
-            x("UPDATE products SET name=?, category=?, unit=?, price=?, min_stock=?, notes=? WHERE id=?",
+            exp = parse_date(request.form.get("expiry"))
+            x("UPDATE products SET name=?, category=?, unit=?, price=?, min_stock=?, notes=?, batch_no=?, expiry=? WHERE id=?",
               (request.form.get("name", "").strip() or pr["name"], request.form.get("category", "").strip() or None,
                request.form.get("unit") or pr["unit"], to_float(request.form.get("price"), pr["price"] or 0),
-               to_float(request.form.get("min_stock"), pr["min_stock"] or 0), request.form.get("notes", "").strip() or None, pid))
+               to_float(request.form.get("min_stock"), pr["min_stock"] or 0), request.form.get("notes", "").strip() or None,
+               request.form.get("batch_no", "").strip() or None, exp.isoformat() if exp else None, pid))
             flash("Product updated.", "ok")
         elif act == "delete":
             to_bin("product", pid)

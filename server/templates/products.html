@@ -1,38 +1,41 @@
 {% extends "base.html" %}
 {% from "_m.html" import csrf %}
 {% from "_prod_tabs.html" import prod_tabs with context %}
-{% block title %}Products & Stock{% endblock %}
-{% block heading %}Products &amp; stock{% endblock %}
+{% block title %}Medicines{% endblock %}
+{% block heading %}Assets · Products (medicines){% endblock %}
 {% block actions %}
-  {% if can('assets.manage') %}<a class="btn" href="#add" onclick="document.getElementById('padd').open=true">➕ Add product</a>
-  <a class="btn primary" href="{{ url_for('product_issue') }}">🤲 Issue to employee</a>{% endif %}
+  {% if can('assets.manage') %}<a class="btn" href="#add" onclick="document.getElementById('padd').open=true">➕ Add medicine</a>
+  <a class="btn primary" href="{{ url_for('product_issue') }}">🤲 Issue medicines</a>{% endif %}
 {% endblock %}
 {% block content %}
 {{ prod_tabs('list') }}
-<div class="note hr-note">📦 <b>Products</b> are items counted by quantity that are given out and used up – stationery, uniforms, samples, SIM cards… &nbsp;Laptops, mobiles, cars and other returnable items are in <a href="{{ url_for('asset_management') }}"><b>Assets</b></a>.</div>
+<div class="note hr-note">💊 <b>Products = medicines</b> given to employees by quantity (samples, stock for field staff…). Laptops, mobiles, cars and other returnable items are under <a href="{{ url_for('asset_management') }}"><b>Asset Management</b></a>.</div>
 <div class="kpis">
-  <div class="kpi"><span class="ki bg-b">📦</span><div><div class="kv2">{{ kp.count }}</div><div class="kl">Products</div></div></div>
+  <div class="kpi"><span class="ki bg-b">📦</span><div><div class="kv2">{{ kp.count }}</div><div class="kl">Medicines</div></div></div>
   <div class="kpi"><span class="ki bg-e">💰</span><div><div class="kv2" style="font-size:22px">{{ kp.value|money }}</div><div class="kl">Stock value ({{ settings.currency }})</div></div></div>
   <div class="kpi"><span class="ki bg-f">🤲</span><div><div class="kv2" style="font-size:22px">{{ kp.issued|money }}</div><div class="kl">Issued this month ({{ settings.currency }})</div></div></div>
   <a class="kpi" href="{{ url_for('products', view='low') }}"><span class="ki bg-d">⚠️</span><div><div class="kv2">{{ kp.low }}</div><div class="kl">Low / out of stock</div></div></a>
+  <a class="kpi" href="{{ url_for('products', view='expiry') }}"><span class="ki bg-c">⏳</span><div><div class="kv2">{{ kp.exp }}</div><div class="kl">Expired / expiring in 60 days</div></div></a>
 </div>
 
 {% if can('assets.manage') %}
 <details class="card fold" id="padd" {{ 'open' if not kp.count }}>
-  <summary id="add"><h2 style="display:inline">➕ Add a product</h2></summary>
+  <summary id="add"><h2 style="display:inline">➕ Add a medicine</h2></summary>
   <form method="post" style="margin-top:12px">{{ csrf() }}
     <div class="form-grid">
       <div><label>Code</label><input name="code" value="{{ code }}"></div>
-      <div><label>Product name *</label><input name="name" required placeholder="e.g. A4 paper, Company shirt (L)"></div>
-      <div><label>Category</label><input name="category" list="pcats" placeholder="e.g. Stationery"></div>
+      <div><label>Medicine name *</label><input name="name" required placeholder="e.g. Panadol 500mg"></div>
+      <div><label>Category</label><input name="category" list="pcats" placeholder="e.g. Tablets"></div>
       <div><label>Unit</label><select name="unit">{% for u in units %}<option>{{ u }}</option>{% endfor %}</select></div>
       <div><label>Price per unit ({{ settings.currency }})</label><input type="number" step="any" min="0" name="price"></div>
       <div><label>Opening stock</label><input type="number" step="any" min="0" name="stock" placeholder="0"></div>
       <div><label>Alert when stock is at or below</label><input type="number" step="any" min="0" name="min_stock" placeholder="e.g. 10"></div>
+      <div><label>Batch no.</label><input name="batch_no"></div>
+      <div><label>Expiry date</label><input type="date" name="expiry"></div>
       <div><label>Notes</label><input name="notes"></div>
     </div>
     <datalist id="pcats">{% for c in all_cats %}<option value="{{ c }}">{% endfor %}</datalist>
-    <div class="btns" style="margin-top:12px"><button class="btn primary">💾 Save product</button></div>
+    <div class="btns" style="margin-top:12px"><button class="btn primary">💾 Save medicine</button></div>
   </form>
 </details>
 {% endif %}
@@ -42,13 +45,14 @@
     <a href="{{ url_for('products', q=term) }}" class="{{ 'on' if not cat and view != 'low' }}">All</a>
     {% for c in cats %}<a href="{{ url_for('products', cat=c.category or '', q=term) }}" class="{{ 'on' if cat == c.category }}">{{ c.category or 'Uncategorised' }} <b>{{ c.c }}</b></a>{% endfor %}
     <a href="{{ url_for('products', view='low') }}" class="low {{ 'on' if view == 'low' }}">⚠️ Low stock</a>
+    <a href="{{ url_for('products', view='expiry') }}" class="low {{ 'on' if view == 'expiry' }}">⏳ Expiring</a>
   </div>
   <form method="get" class="inline" style="margin:10px 0"><input type="hidden" name="cat" value="{{ cat }}">
-    <div class="rp-searchbox" style="min-width:320px"><span>🔍</span><input name="q" value="{{ term }}" placeholder="Search product name, code or category…"></div>
+    <div class="rp-searchbox" style="min-width:320px"><span>🔍</span><input name="q" value="{{ term }}" placeholder="Search medicine name, code or category…"></div>
     <button class="btn">Search</button></form>
   {% if rows %}
   <div class="pr-grid">
-  {% for p in rows %}{% set low = p.min_stock and p.stock <= p.min_stock %}
+  {% for p in rows %}{% set low = p.min_stock and p.stock <= p.min_stock %}{% set expd = p.expiry and p.expiry < today_s %}{% set exps = p.expiry and p.expiry <= soon %}
     <a class="pr-card {{ 'low' if low }} {{ 'out' if p.stock <= 0 }}" href="{{ url_for('product_view', pid=p.id) }}" style="--i: {{ loop.index0 if loop.index0 < 24 else 24 }}">
       <div class="pr-top"><span class="pr-code">{{ p.code }}</span>{% if p.category %}<span class="pr-cat">{{ p.category }}</span>{% endif %}</div>
       <b class="pr-name">{{ p.name }}</b>
@@ -56,10 +60,11 @@
       {% set top = [p.stock, p.min_stock * 3, 1]|max %}
       <div class="pr-bar"><i style="--w: {{ (p.stock * 100 / top)|round|int if p.stock > 0 else 0 }}%"></i></div>
       <div class="pr-foot"><span>{{ settings.currency }} {{ p.price|money }}/{{ p.unit }}</span><span>{{ p.issued|num }} issued</span></div>
-      {% if p.stock <= 0 %}<em class="pr-flag">Out of stock</em>{% elif low %}<em class="pr-flag">Low – min {{ p.min_stock|num }}</em>{% endif %}
+      {% if p.expiry or p.batch_no %}<div class="pr-exp {{ 'bad' if expd else ('warn' if exps else '') }}">{% if p.batch_no %}Batch {{ p.batch_no }} · {% endif %}{% if p.expiry %}Exp {{ p.expiry|nicedate }}{% endif %}</div>{% endif %}
+      {% if expd %}<em class="pr-flag">Expired</em>{% elif p.stock <= 0 %}<em class="pr-flag">Out of stock</em>{% elif low %}<em class="pr-flag">Low – min {{ p.min_stock|num }}</em>{% endif %}
     </a>
   {% endfor %}
   </div>
-  {% else %}<p class="muted">{{ 'No product matches.' if term or cat or view == 'low' else 'No products yet. Add your first product above.' }}</p>{% endif %}
+  {% else %}<p class="muted">{{ 'No medicine matches.' if term or cat or view in ('low', 'expiry') else 'No medicines yet. Add your first medicine above.' }}</p>{% endif %}
 </div>
 {% endblock %}

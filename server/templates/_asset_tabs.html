@@ -7,6 +7,7 @@
   <a href="{{ url_for('assets_assign') }}" class="{{ 'on' if active == 'assign' }}"><span>🤝</span> Assign / Return</a>
   <a href="{{ url_for('assets_import') }}" class="{{ 'on' if active == 'import' }}"><span>📤</span> Import Assets</a>
   {% endif %}
+  <a href="{{ url_for('products') }}" class="{{ 'on' if active == 'products' }}"><span>💊</span> Products (Medicines)</a>
   <a href="{{ url_for('assets_history') }}" class="{{ 'on' if active == 'history' }}"><span>🕘</span> Assignment History</a>
   <a href="{{ url_for('assets', export='csv') }}"><span>📥</span> Export</a>
 </nav>

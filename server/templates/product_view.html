@@ -3,14 +3,14 @@
 {% from "_prod_tabs.html" import prod_tabs with context %}
 {% block title %}{{ p.name }}{% endblock %}
 {% block heading %}{{ p.name }}{% endblock %}
-{% block actions %}{% if can('assets.manage') %}<a class="btn primary" href="{{ url_for('product_issue', product=p.id) }}">🤲 Issue to employee</a>{% endif %}{% endblock %}
+{% block actions %}{% if can('assets.manage') %}<a class="btn primary" href="{{ url_for('product_issue', product=p.id) }}">🤲 Issue medicine</a>{% endif %}{% endblock %}
 {% block content %}
 {{ prod_tabs('') }}
 {% set low = p.min_stock and p.stock <= p.min_stock %}
 <div class="kpis">
   <div class="kpi"><span class="ki {{ 'bg-d' if low else 'bg-b' }}">📦</span><div><div class="kv2">{{ p.stock|num }} <small style="font-size:14px">{{ p.unit }}</small></div><div class="kl">In stock{% if p.min_stock %} · alert at {{ p.min_stock|num }}{% endif %}</div></div></div>
   <div class="kpi"><span class="ki bg-e">💰</span><div><div class="kv2" style="font-size:22px">{{ (p.stock * (p.price or 0))|money }}</div><div class="kl">Stock value · {{ p.price|money }}/{{ p.unit }}</div></div></div>
-  <div class="kpi"><span class="ki bg-f">🏷️</span><div><div class="kv2" style="font-size:18px">{{ p.code }}</div><div class="kl">{{ p.category or 'No category' }}</div></div></div>
+  <div class="kpi"><span class="ki bg-f">💊</span><div><div class="kv2" style="font-size:18px">{{ p.code }}</div><div class="kl">{{ p.category or 'No category' }}{% if p.batch_no %} · batch {{ p.batch_no }}{% endif %}{% if p.expiry %} · <b style="color:{{ '#b91c1c' if p.expiry < today.isoformat() else 'inherit' }}">exp {{ p.expiry|nicedate }}</b>{% endif %}</div></div></div>
 </div>
 <div class="grid g2">
   {% if can('assets.manage') %}
@@ -19,7 +19,7 @@
     <form method="post" class="form-grid">{{ csrf() }}<input type="hidden" name="act" value="in">
       <div><label>Quantity ({{ p.unit }}) *</label><input type="number" step="any" min="0" name="qty" required></div>
       <div><label>Date</label><input type="date" name="on_date" value="{{ today.isoformat() }}"></div>
-      <div class="full"><label>Note</label><input name="note" placeholder="e.g. Bill #123, supplier name"></div>
+      <div class="full"><label>Note</label><input name="note" placeholder="e.g. Bill #123, supplier / distributor"></div>
       <div><button class="btn primary">Add to stock</button></div></form>
     <div class="card-head" style="margin-top:16px"><h2>⚖️ Correct stock (after counting)</h2></div>
     <form method="post" class="inline">{{ csrf() }}<input type="hidden" name="act" value="adjust">
@@ -34,17 +34,19 @@
         <input type="number" step="any" min="0" max="{{ h.q }}" name="qty" placeholder="Qty" style="width:80px;min-width:0"><button class="btn sm">↩ Return unused</button></form>{% endif %}</li>{% endfor %}</ul>
     {% else %}<p class="muted">Not issued to anyone yet.</p>{% endif %}
     {% if can('assets.manage') %}
-    <details style="margin-top:14px"><summary class="btn sm">✏️ Edit product</summary>
+    <details style="margin-top:14px"><summary class="btn sm">✏️ Edit medicine</summary>
       <form method="post" class="form-grid" style="margin-top:10px">{{ csrf() }}<input type="hidden" name="act" value="edit">
         <div><label>Name</label><input name="name" value="{{ p.name }}"></div>
         <div><label>Category</label><input name="category" value="{{ p.category or '' }}" list="pcats"></div>
         <div><label>Unit</label><select name="unit">{% for u in units %}<option {{ 'selected' if u == p.unit }}>{{ u }}</option>{% endfor %}</select></div>
         <div><label>Price</label><input type="number" step="any" name="price" value="{{ p.price|num }}"></div>
         <div><label>Low-stock alert at</label><input type="number" step="any" name="min_stock" value="{{ p.min_stock|num }}"></div>
+        <div><label>Batch no.</label><input name="batch_no" value="{{ p.batch_no or '' }}"></div>
+        <div><label>Expiry date</label><input type="date" name="expiry" value="{{ p.expiry or '' }}"></div>
         <div><label>Notes</label><input name="notes" value="{{ p.notes or '' }}"></div>
         <div><button class="btn primary">Save</button></div></form>
       <datalist id="pcats">{% for c in cats %}<option value="{{ c }}">{% endfor %}</datalist>
-      <form method="post" style="margin-top:10px" onsubmit="return confirm('Delete {{ p.name }}? It goes to the Recycle Bin with its history.')">{{ csrf() }}<input type="hidden" name="act" value="delete"><button class="btn sm danger">🗑 Delete product</button></form>
+      <form method="post" style="margin-top:10px" onsubmit="return confirm('Delete {{ p.name }}? It goes to the Recycle Bin with its history.')">{{ csrf() }}<input type="hidden" name="act" value="delete"><button class="btn sm danger">🗑 Delete medicine</button></form>
     </details>{% endif %}
   </div>
 </div>
