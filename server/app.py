@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "2.3.1"
+APP_VERSION = "2.4.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -148,6 +148,10 @@ CREATE TABLE IF NOT EXISTS product_moves(
   on_date TEXT, note TEXT, created_by TEXT, created_at TEXT);
 CREATE INDEX IF NOT EXISTS idx_pm_prod ON product_moves(product_id);
 CREATE INDEX IF NOT EXISTS idx_pm_emp ON product_moves(employee_id);
+CREATE TABLE IF NOT EXISTS salary_deductions(
+  id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, month TEXT NOT NULL,
+  amount REAL NOT NULL, reason TEXT, created_by TEXT, created_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_sd_emp ON salary_deductions(employee_id, month);
 CREATE INDEX IF NOT EXISTS idx_inc_emp ON increments(employee_id);
 CREATE INDEX IF NOT EXISTS idx_doc_emp ON emp_documents(employee_id);
 CREATE INDEX IF NOT EXISTS idx_warn_emp ON warnings(employee_id);
@@ -225,6 +229,9 @@ def init_db():
             con.execute(f"ALTER TABLE products ADD COLUMN {col} TEXT")
     if "loan_deduction" not in pcols:
         con.execute("ALTER TABLE payroll ADD COLUMN loan_deduction REAL DEFAULT 0")
+    for col in ("unmarked_days", "manual_deduction"):
+        if col not in pcols:
+            con.execute(f"ALTER TABLE payroll ADD COLUMN {col} REAL DEFAULT 0")
     if "suggested_deduction" not in pcols:          # deductions are suggested, HR applies them by hand
         con.execute("ALTER TABLE payroll ADD COLUMN suggested_deduction REAL DEFAULT 0")
         con.execute("ALTER TABLE payroll ADD COLUMN ded_status TEXT")
@@ -513,17 +520,21 @@ def compute_payroll(emp, y, m):
                    AND l.start_date<=? AND l.end_date>=?""", (emp["id"], last.isoformat(), first.isoformat())):
         a, b = max(parse_date(lv["start_date"]), first), min(parse_date(lv["end_date"]), last)
         unpaid += sum(1 for d in daterange(a, b) if is_workday(d))
+    marked = {r["date"] for r in q("SELECT date FROM attendance WHERE employee_id=? AND date BETWEEN ? AND ?",
+                                     (emp["id"], first.isoformat(), last.isoformat()))}
+    upto = min(last, date.today())
+    unmarked = sum(1 for d in workdays if d <= upto and (not jd or d >= jd) and d.isoformat() not in marked)
     lates_per = int(to_float(s.get("lates_per_day"), 0))
     late_penalty = (c["late"] // lates_per) if lates_per > 0 else 0
     absent = c["absent"] + 0.5 * c["half_day"]
     present = c["present"] + c["late"] + 0.5 * c["half_day"]
-    deduction_days = absent + unpaid + not_joined + late_penalty
+    deduction_days = absent + unpaid + not_joined + late_penalty + unmarked
     basic, allow = emp["basic_salary"] or 0, emp["allowances"] or 0
     per_day = (basic + allow) / len(workdays) if workdays else 0
     return {
         "basic": basic, "allowances": allow, "working_days": len(workdays),
         "present_days": present, "absent_days": absent, "late_days": c["late"],
-        "unpaid_leave_days": unpaid, "deduction_days": deduction_days,
+        "unpaid_leave_days": unpaid, "deduction_days": deduction_days, "unmarked_days": unmarked,
         "absent_deduction": round(per_day * deduction_days),
     }
 
@@ -531,7 +542,8 @@ def compute_payroll(emp, y, m):
 def calc_net(p):
     return round((p["basic"] or 0) + (p["allowances"] or 0) + (p["overtime"] or 0) + (p["bonus"] or 0)
                  - (p["absent_deduction"] or 0) - (p["tax"] or 0) - (p["other_deductions"] or 0)
-                 - ((p["loan_deduction"] if "loan_deduction" in p.keys() else 0) or 0))
+                 - ((p["loan_deduction"] if "loan_deduction" in p.keys() else 0) or 0)
+                 - ((p["manual_deduction"] if "manual_deduction" in p.keys() else 0) or 0))
 
 
 # --------------------------------------------------------------------------- auth & security
@@ -671,7 +683,8 @@ AUDIT_NAMES = {
     "attendance_import_confirm": "Imported attendance", "leaves": "Recorded leave", "leave_decide": "Leave decision", "leave_edit": "Edited leave",
     "payroll_generate": "Generated payroll", "payroll_edit": "Edited salary", "payroll_status": "Changed salary status",
     "payroll_pay_all": "Marked all salaries paid", "payroll_deduction": "Salary deduction decision",
-    "payroll_deduct_all": "Applied all salary deductions", "payroll_delete": "Deleted salary row",
+    "payroll_deduct_all": "Applied all salary deductions",
+    "payroll_manual_add": "Deducted from salary (HR)", "payroll_manual_delete": "Removed HR salary deduction", "payroll_delete": "Deleted salary row",
     "loans": "Gave a loan", "loan_view": "Changed a loan", "settings_page": "Changed settings", "recycle_bin": "Recycle bin",
     "users": "Changed users", "user_perms_page": "Changed a user's permissions", "roles_page": "Changed roles & permissions", "change_password": "Changed own password",
     "asset_new": "Added asset", "asset_edit": "Edited asset", "asset_assign": "Assigned asset",
@@ -2643,7 +2656,7 @@ def payroll():
                 WHERE p.month=? ORDER BY d.name, e.name""", (month,))
     tot = {k: sum((r[k] or 0) for r in rows) for k in
            ("basic", "allowances", "overtime", "bonus", "absent_deduction", "tax", "other_deductions",
-            "loan_deduction", "net")}
+            "loan_deduction", "net", "manual_deduction")}
     missing = q("""SELECT COUNT(*) c FROM employees WHERE status='active' AND id NOT IN
                    (SELECT employee_id FROM payroll WHERE month=?)""", (month,), one=True)["c"]
     if request.args.get("export") == "csv":
@@ -2659,7 +2672,10 @@ def payroll():
                     FROM loan_payments p WHERE p.loan_id=l.id),0) bal FROM loans l WHERE l.status<>'closed') WHERE bal>0.5""",
                  one=True)
     pend = [r for r in rows if r["ded_status"] == "pending" and r["status"] != "paid"]
-    return render_template("payroll.html", rows=rows, month=month, tot=tot, missing=missing, loan_out=loan_out, pend=pend,
+    manual = q("""SELECT s.*, e.name, e.emp_code, (SELECT status FROM payroll p WHERE p.employee_id=s.employee_id AND p.month=s.month) pst
+                  FROM salary_deductions s JOIN employees e ON e.id=s.employee_id WHERE s.month=? ORDER BY s.id DESC""", (month,))
+    all_emps = q("SELECT id, name, emp_code FROM employees WHERE status='active' ORDER BY name")
+    return render_template("payroll.html", rows=rows, month=month, tot=tot, missing=missing, loan_out=loan_out, pend=pend, manual=manual, all_emps=all_emps,
                            prev=shift_month(y, m, -1), next=shift_month(y, m, 1))
 
 
@@ -2689,7 +2705,8 @@ def payroll_generate():
             c["absent_deduction"], dst = 0, ("pending" if sug > 0 else None)          # HR reviews and deducts
         if dst == "pending":
             review += 1
-        row = {**c, **extra, "suggested_deduction": sug, "ded_status": dst}
+        row = {**c, **extra, "suggested_deduction": sug, "ded_status": dst,
+               "manual_deduction": manual_total(e["id"], month)}
         if ex:                                   # recalculating: forget this salary's previous loan cuts
             x("DELETE FROM loan_payments WHERE payroll_id=?", (ex["id"],))
         row["loan_deduction"] = 0
@@ -2767,6 +2784,55 @@ def payroll_deduct_all():
     return redirect(url_for("payroll", month=month))
 
 
+def manual_total(eid, month):
+    return q("SELECT COALESCE(SUM(amount),0) s FROM salary_deductions WHERE employee_id=? AND month=?",
+             (eid, month), one=True)["s"]
+
+
+def refresh_manual(eid, month):
+    """Put the HR deductions of this employee/month into the salary row (if it exists and is not paid)."""
+    p = q("SELECT * FROM payroll WHERE employee_id=? AND month=?", (eid, month), one=True)
+    if p and p["status"] != "paid":
+        row = dict(p, manual_deduction=manual_total(eid, month))
+        x("UPDATE payroll SET manual_deduction=?, net=? WHERE id=?", (row["manual_deduction"], calc_net(row), p["id"]))
+
+
+@app.post("/payroll/manual-deduction")
+@perm_required("payroll.manage")
+def payroll_manual_add():
+    y, m = parse_month(request.form.get("month"))
+    month = f"{y:04d}-{m:02d}"
+    eid = request.form.get("employee_id", type=int)
+    e = q("SELECT id, name FROM employees WHERE id=?", (eid,), one=True)
+    amt = to_float(request.form.get("amount"), 0)
+    reason = request.form.get("reason", "").strip()
+    paid = q("SELECT 1 FROM payroll WHERE employee_id=? AND month=? AND status='paid'", (eid, month), one=True)
+    if not e or amt <= 0 or not reason:
+        flash("Choose the employee, enter the amount and the reason.", "error")
+    elif paid:
+        flash(f"{e['name']}'s salary for {monthname(month)} is already paid. Mark it unpaid first.", "error")
+    else:
+        x("INSERT INTO salary_deductions(employee_id,month,amount,reason,created_by,created_at) VALUES(?,?,?,?,?,?)",
+          (eid, month, amt, reason, g.user["username"], datetime.now().strftime("%Y-%m-%d %H:%M")))
+        refresh_manual(eid, month)
+        flash(f"Deducted {money(amt)} from {e['name']}'s salary for {monthname(month)} ({reason}).", "ok")
+    return redirect(url_for("payroll", month=month) + "#manual")
+
+
+@app.post("/payroll/manual-deduction/<int:did>/delete")
+@perm_required("payroll.manage")
+def payroll_manual_delete(did):
+    d = q("""SELECT s.*, e.name FROM salary_deductions s JOIN employees e ON e.id=s.employee_id WHERE s.id=?""",
+          (did,), one=True) or abort(404)
+    if q("SELECT 1 FROM payroll WHERE employee_id=? AND month=? AND status='paid'", (d["employee_id"], d["month"]), one=True):
+        flash("That salary is already paid. Mark it unpaid first.", "error")
+    else:
+        x("DELETE FROM salary_deductions WHERE id=?", (did,))
+        refresh_manual(d["employee_id"], d["month"])
+        flash(f"Removed the {money(d['amount'])} deduction from {d['name']}'s salary.", "ok")
+    return redirect(url_for("payroll", month=d["month"]) + "#manual")
+
+
 def get_pay(pid):
     p = q("""SELECT p.*, e.name, e.emp_code, e.designation, e.cnic, e.bank_account, e.join_date, d.name dept
              FROM payroll p JOIN employees e ON e.id=p.employee_id LEFT JOIN departments d ON d.id=e.department_id
@@ -2800,7 +2866,8 @@ def payroll_edit(pid):
         return redirect(url_for("payroll", month=p["month"]))
     cuts = q("""SELECT lp.amount, l.id loan_id, l.reason FROM loan_payments lp JOIN loans l ON l.id=lp.loan_id
                 WHERE lp.payroll_id=?""", (pid,))
-    return render_template("payroll_edit.html", p=p, cuts=cuts)
+    manual = q("SELECT * FROM salary_deductions WHERE employee_id=? AND month=?", (p["employee_id"], p["month"]))
+    return render_template("payroll_edit.html", p=p, cuts=cuts, manual=manual)
 
 
 @app.post("/payroll/<int:pid>/status")
@@ -2851,6 +2918,8 @@ def payslip(pid):
         left = q("""SELECT l.amount - COALESCE((SELECT SUM(amount) FROM loan_payments WHERE loan_id=l.id),0) b
                     FROM loans l WHERE l.id=?""", (lp["id"],), one=True)["b"]
         deductions.append((f"Loan installment (balance left {money(max(left, 0))})", lp["amount"]))
+    for md in q("SELECT amount, reason FROM salary_deductions WHERE employee_id=? AND month=?", (p["employee_id"], p["month"])):
+        deductions.append((f"Deduction – {md['reason'] or 'by HR'}", md["amount"]))
     if (p["loan_deduction"] or 0) and not any(l.startswith("Loan") for l, _ in deductions):
         deductions.append(("Loan installment", p["loan_deduction"]))
     return render_template("payslip.html", p=p, earnings=earnings, deductions=deductions,
@@ -4257,6 +4326,40 @@ NOTIFY_TYPES = [  # (type, label, permission needed to receive it, important?)
 ]
 
 
+def pending_absences():
+    """Employees with absent or not-marked working days this month (till yesterday) and no paid leave left."""
+    today = date.today()
+    first = today.replace(day=1)
+    days = [d for d in daterange(first, today - timedelta(days=1)) if is_workday(d)] if today.day > 1 else []
+    if not days:
+        return []
+    ds = {d.isoformat() for d in days}
+    att = {}
+    for r in q("SELECT employee_id, date, status FROM attendance WHERE date BETWEEN ? AND ?",
+               (first.isoformat(), (today - timedelta(days=1)).isoformat())):
+        if r["date"] in ds:
+            att.setdefault(r["employee_id"], {})[r["date"]] = r["status"]
+    yr = str(today.year)
+    left = {}
+    allowed = {r["id"]: r["days_per_year"] for r in q("SELECT id, days_per_year FROM leave_types WHERE paid=1 AND days_per_year>0")}
+    used = {}
+    for r in q("""SELECT employee_id, leave_type_id, SUM(days) s FROM leaves WHERE status IN ('approved','pending')
+                  AND substr(start_date,1,4)=? GROUP BY employee_id, leave_type_id""", (yr,)):
+        used[(r["employee_id"], r["leave_type_id"])] = r["s"] or 0
+    out = []
+    for e in q("SELECT id, name, join_date FROM employees WHERE status='active'"):
+        jd = e["join_date"] or ""
+        mine = att.get(e["id"], {})
+        n = sum(1 for d in ds if d >= jd and (d not in mine or mine[d] == "absent")) + \
+            0.5 * sum(1 for d, st in mine.items() if st == "half_day")
+        if n <= 0:
+            continue
+        left = sum(max(a - used.get((e["id"], t), 0), 0) for t, a in allowed.items())
+        if left <= 0:
+            out.append({"id": e["id"], "name": e["name"], "days": n})
+    return sorted(out, key=lambda r: -r["days"])
+
+
 def build_alerts():
     """Current alerts for the signed-in user. Each has a stable id so it pops up only once."""
     today = date.today()
@@ -4302,6 +4405,13 @@ def build_alerts():
                 add("payroll_due", f"pd-{m}", "Payroll reminder",
                     f"Salaries for {monthname(m)} have not been generated yet.", url_for("payroll", month=m))
     if "deduct_review" in allowed:
+        pend = pending_absences()
+        if pend:
+            add("deduct_review", f"pa-{today:%Y-%m}-{len(pend)}-{sum(p_['days'] for p_ in pend):g}",
+                "⏳ Pending: absent / not marked, no leave left",
+                f"{len(pend)} employee(s) this month: " + ", ".join(f"{p_['name']} ({p_['days']:g} day)" for p_ in pend[:4])
+                + ("…" if len(pend) > 4 else "") + "\nNo salary is cut – review it in payroll, or mark attendance / leave.",
+                url_for("attendance_report", month=today.strftime("%Y-%m")), True)
         for r in q("""SELECT p.month, COUNT(*) c, SUM(p.suggested_deduction) s FROM payroll p WHERE p.ded_status='pending'
                       AND p.status<>'paid' GROUP BY p.month ORDER BY p.month DESC LIMIT 3"""):
             names = [x_["name"] for x_ in q("""SELECT e.name FROM payroll p JOIN employees e ON e.id=p.employee_id

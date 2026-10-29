@@ -18,7 +18,8 @@
       <div><label>Other deductions (advance, fine…)</label><input type="number" step="any" name="other_deductions" value="{{ p.other_deductions|num }}"></div>
       <div class="full"><label>Loan installment (automatic)</label>
         <div class="loanline" style="margin:0"><span><b>{{ settings.currency }} {{ (p.loan_deduction or 0)|money }}</b>{% for c in cuts %} · <a href="{{ url_for('loan_view', lid=c.loan_id) }}">{{ c.reason or 'Loan' }}</a>{% endfor %}{% if not cuts %} – no loan to deduct{% endif %}</span><a class="btn sm" href="{{ url_for('loans') }}">Manage loans</a></div>
-        <input type="hidden" id="loanded" value="{{ p.loan_deduction or 0 }}"></div>
+        <input type="hidden" id="loanded" value="{{ (p.loan_deduction or 0) + (p.manual_deduction or 0) }}"></div>
+      {% if manual %}<div class="full"><label>HR deductions</label><div class="loanline" style="margin:0"><span>{% for d in manual %}<b>{{ d.amount|money }}</b> {{ d.reason }}{{ ' · ' if not loop.last }}{% endfor %}</span><a class="btn sm" href="{{ url_for('payroll', month=p.month) }}#manual">Change</a></div></div>{% endif %}
       <div class="full"><label>Remarks (shown on payslip)</label><input name="remarks" value="{{ p.remarks or '' }}"></div>
     </div>
     <p style="font-size:18px;margin:16px 0">Net salary: <b>{{ settings.currency }} <span id="net">{{ p.net|money }}</span></b></p>
