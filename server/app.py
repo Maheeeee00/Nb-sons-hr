@@ -4195,6 +4195,44 @@ def api_notifications():
     return resp
 
 
+@app.route("/manifest.webmanifest")
+def web_manifest():
+    """Lets phones install the HR system as an app (Add to Home screen / Install app)."""
+    name = get_settings().get("company_name") or "NB Sons HR"
+    data = {"name": f"{name} – HR", "short_name": "NB Sons HR", "start_url": "/", "scope": "/", "id": "/",
+            "display": "standalone", "orientation": "portrait-primary",
+            "background_color": "#0f2a44", "theme_color": "#0f2a44",
+            "description": "NB Sons HR – employees, attendance, leaves, payroll and assets",
+            "icons": [{"src": url_for("static", filename="app-icon-192.png"), "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                      {"src": url_for("static", filename="app-icon-512.png"), "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                      {"src": url_for("static", filename="app-icon-512.png"), "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]}
+    import json
+    return Response(json.dumps(data), mimetype="application/manifest+json")
+
+
+SW_JS = """/* NB Sons HR app shell: never stores HR data on the phone, only shows a friendly page when offline */
+const OFFLINE = `<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
+<body style="margin:0;font-family:system-ui;background:#0f2a44;color:#fff;display:grid;place-items:center;min-height:100vh;text-align:center">
+<div style="padding:24px"><div style="font-size:54px">📡</div><h2>Can't reach the HR server</h2>
+<p style="opacity:.85">Connect to the office Wi-Fi and make sure the server PC is on.</p>
+<button onclick="location.reload()" style="margin-top:10px;padding:12px 22px;border:0;border-radius:10px;background:#14b8a6;color:#fff;font-weight:700;font-size:15px">Try again</button></div></body>`;
+self.addEventListener('install', e => self.skipWaiting());
+self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch', e => {
+  if (e.request.mode !== 'navigate') return;
+  e.respondWith(fetch(e.request).catch(() => new Response(OFFLINE, {headers: {'Content-Type': 'text/html; charset=utf-8'}})));
+});
+"""
+
+
+@app.route("/sw.js")
+def service_worker():
+    r = Response(SW_JS, mimetype="application/javascript")
+    r.headers["Cache-Control"] = "no-cache"
+    r.headers["Service-Worker-Allowed"] = "/"
+    return r
+
+
 @app.route("/api/ping")
 def api_ping():
     """Lets the NB Sons HR client app find and check this server. Reveals nothing private."""
