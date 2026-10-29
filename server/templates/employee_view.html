@@ -27,6 +27,9 @@
       {% if can('employees.manage') %}<a class="btn primary" href="{{ url_for('employee_edit', eid=e.id) }}">✏️ Edit profile</a>{% endif %}
       {% if can('assets.manage') %}<a class="btn" href="{{ url_for('assets_assign', emp=e.id) }}">💻 Assign asset</a>{% endif %}
       {% if can('attendance.manage') %}<a class="btn" href="{{ url_for('attendance_manage', emp=e.id) }}">🛠️ Attendance</a>{% endif %}
+      {% if can('employees.manage') %}<a class="btn" href="{{ url_for('letters', emp=e.id) }}">📄 Letters</a>{% endif %}
+      {% if can('payroll.manage') %}<a class="btn" href="{{ url_for('increments', emp=e.id) }}#give">📈 Increment</a>
+      <a class="btn" href="{{ url_for('settlement_edit', eid=e.id) }}">🚪 {{ 'Settlement' if sett else 'Final settlement' }}</a>{% endif %}
       <a class="btn" href="{{ url_for('employee_profiles') }}">&larr; All profiles</a>
     </div>
   </div>
@@ -51,11 +54,11 @@
       </form></div>
     <div class="cal pf-cal">
       {% for w in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<div class="cal-h">{{ w }}</div>{% endfor %}
-      {% set LBL = {'present':'Present','late':'Late','half_day':'Half day','absent':'Absent','leave':'Leave','off':'Off','none':'Not marked','future':''} %}
+      {% set LBL = {'present':'Present','late':'Late','half_day':'Half day','absent':'Absent','leave':'Leave','off':'Off','hol':'Holiday','none':'Not marked','future':''} %}
       {% for c in cal %}
         {% if c is none %}<div></div>
-        {% else %}{% set st = c.rec.status if c.rec else ('off' if not c.work else ('future' if c.future else 'none')) %}
-        <div class="cal-d cd-{{ st }} {{ 'cd-today' if c.d == today }}" style="--i: {{ loop.index0 }}" title="{{ c.d|nicedate }}{% if c.rec %} · {{ c.rec.status|replace('_',' ') }}{% if c.rec.check_in %} · in {{ c.rec.check_in }}{% endif %}{% if c.rec.check_out %} · out {{ c.rec.check_out }}{% endif %}{% endif %}">
+        {% else %}{% set st = c.rec.status if c.rec else ('hol' if c.hol else ('off' if not c.work else ('future' if c.future else 'none'))) %}
+        <div class="cal-d cd-{{ st }} {{ 'cd-today' if c.d == today }}" style="--i: {{ loop.index0 }}" title="{{ c.d|nicedate }}{% if c.hol %} · 🎉 {{ c.hol }}{% endif %}{% if c.rec %} · {{ c.rec.status|replace('_',' ') }}{% if c.rec.check_in %} · in {{ c.rec.check_in }}{% endif %}{% if c.rec.check_out %} · out {{ c.rec.check_out }}{% endif %}{% endif %}">
           <b>{{ c.d.day }}</b><small>{{ LBL[st] }}</small>{% if c.rec and c.rec.check_in %}<em>{{ c.rec.check_in }}</em>{% endif %}</div>
         {% endif %}
       {% endfor %}
@@ -146,6 +149,34 @@
     {% else %}<p class="muted" style="margin:0">No loans.</p>{% endif %}
   </div>
   {% endif %}
+
+  {% if can('payroll.view') %}
+  <div class="card" id="incs">
+    <div class="card-head"><h2>📈 Increments & promotions</h2>{% if can('payroll.manage') %}<a href="{{ url_for('increments', emp=e.id) }}#give">+ Give increment</a>{% endif %}</div>
+    {% if incs %}
+    <div class="pf-tl">{% for r in incs %}{% set og = r.old_basic + r.old_allow %}{% set ng = r.new_basic + r.new_allow %}
+      <div class="pf-tli k-{{ r.kind }}" style="--i: {{ loop.index0 }}"><i></i>
+        <div class="grow"><b>{{ {'increment': '📈 Increment', 'promotion': '🏆 Promotion', 'decrement': '📉 Salary decrease', 'adjustment': '⚖️ Adjustment'}[r.kind] }}</b>
+          <small>{{ r.eff_date|nicedate }}{% if r.new_desig and r.new_desig != r.old_desig %} · {{ r.old_desig or '—' }} → <b>{{ r.new_desig }}</b>{% endif %}{% if r.reason %} · {{ r.reason }}{% endif %}</small></div>
+        <div class="pf-tla"><small>{{ og|money }} →</small> <b>{{ ng|money }}</b>{% if og %}<em class="{{ 'up' if ng > og else ('down' if ng < og else '') }}">{{ '%+.1f'|format((ng - og) * 100 / og) }}%</em>{% endif %}</div>
+      </div>{% endfor %}</div>
+    {% else %}<p class="muted" style="margin:0">No salary changes yet. Starting salary {{ settings.currency }} {{ ((e.basic_salary or 0) + (e.allowances or 0))|money }}{% if e.join_date %} from {{ e.join_date|nicedate }}{% endif %}.</p>{% endif %}
+    {% if sett %}<div class="pf-sett"><b>🚪 Final settlement</b> · {{ 'Finalized' if sett.status == 'final' else 'Draft' }} · last day {{ sett.exit_date|nicedate }} · net {{ settings.currency }} {{ sett.net|money }}
+      <a href="{{ url_for('settlement_print', sid=sett.id) }}">Sheet →</a></div>{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="card" id="docs">
+    <div class="card-head"><h2>📁 Documents ({{ docs|length }})</h2>{% if can('employees.manage') %}<a href="#" onclick="var d=document.getElementById('pfdup');d.open=!d.open;return false">+ Upload</a>{% endif %}</div>
+    {% if can('employees.manage') %}<details id="pfdup" class="pf-up" {{ 'open' if not docs }}><summary hidden></summary>{% include "_doc_upload.html" %}</details>{% endif %}
+    {% if docs %}{% include "_doc_list.html" %}{% elif not can('employees.manage') %}<p class="muted" style="margin:0">No documents uploaded.</p>{% endif %}
+  </div>
+
+  <div class="card" id="warns">
+    <div class="card-head"><h2>⚠️ Warnings & discipline ({{ warns|length }})</h2>{% if can('employees.manage') %}<a href="#" onclick="var d=document.getElementById('pfwn');d.open=!d.open;return false">+ Issue warning</a>{% endif %}</div>
+    {% if can('employees.manage') %}<details id="pfwn" class="pf-up"><summary hidden></summary>{% include "_warn_form.html" %}</details>{% endif %}
+    {% if warns %}{% include "_warn_list.html" %}{% else %}<p class="muted" style="margin:0">✅ Clean record – no warnings.</p>{% endif %}
+  </div>
 
   {% if acct %}
   <div class="card">

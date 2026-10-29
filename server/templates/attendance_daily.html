@@ -13,7 +13,7 @@
 {% endblock %}
 {% block content %}
 {{ att_tabs("daily") }}
-<div class="note"><b>{{ weekday }}, {{ d|nicedate }}</b>{% if not workday %} — this is a weekly off day.{% endif %}
+<div class="note"><b>{{ weekday }}, {{ d|nicedate }}</b>{% if holiday %} — 🎉 public holiday: <b>{{ holiday }}</b> (paid day off, nobody is marked absent).{% elif not workday %} — this is a weekly off day.{% endif %}
   · Employees who check in themselves appear automatically. Leave approved by HR is filled in as “Leave”.</div>
 <div class="stats">
   <div class="stat ok"><div class="v" id="c-present">{{ counts.present or 0 }}</div><div class="l">Present</div></div>

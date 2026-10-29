@@ -1,0 +1,14 @@
+<form method="post" action="{{ url_for('doc_upload') }}" enctype="multipart/form-data" class="doc-up" style="margin-top:12px">{{ csrf() }}
+  {% if e is defined and e %}<input type="hidden" name="employee_id" value="{{ e.id }}"><input type="hidden" name="back" value="profile">
+  {% else %}<div class="form-grid" style="margin-bottom:10px"><div><label>Employee *</label><select name="employee_id" required><option value="">— choose —</option>
+    {% for x in emps %}<option value="{{ x.id }}" {{ 'selected' if pre == x.id }}>{{ x.name }} ({{ x.emp_code }})</option>{% endfor %}</select></div></div>{% endif %}
+  <label class="doc-drop"><input type="file" name="file" multiple required accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv"
+      onchange="var n=this.files.length,t=this.closest('.doc-drop').querySelector('b');t.textContent=n?(n==1?this.files[0].name:n+' files chosen'):'Click to choose files';this.closest('.doc-drop').classList.toggle('on',n>0)">
+    <span>📎</span><b>Click to choose files</b><small>PDF, pictures, Word or Excel · you can pick several</small></label>
+  <div class="form-grid" style="margin-top:10px">
+    <div><label>Document type</label><select name="doc_type">{% for t in (DOC_TYPES if DOC_TYPES is defined else types) %}<option>{{ t }}</option>{% endfor %}</select></div>
+    <div><label>Title <small class="muted">(optional)</small></label><input name="title" placeholder="e.g. CNIC front & back"></div>
+    <div><label>Expiry date <small class="muted">(get an alert 30 days before)</small></label><input type="date" name="expiry"></div>
+  </div>
+  <div class="btns" style="margin-top:12px"><button class="btn primary">📤 Upload</button><span class="muted">Files are kept on the server PC in Documents\NB Sons HR Data\documents.</span></div>
+</form>

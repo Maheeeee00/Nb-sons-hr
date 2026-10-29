@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}HR Letters{% endblock %}
+{% block heading %}HR letters{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-head"><h2>1️⃣ Choose the employee</h2></div>
+  <div class="rp-searchbox" style="max-width:520px"><span>🔍</span>
+    <input id="lq" list="lemps" placeholder="Type a name or employee code…" autocomplete="off" value="{% for e in emps %}{% if e.id == pre %}{{ e.name }} ({{ e.emp_code }}){% endif %}{% endfor %}"></div>
+  <datalist id="lemps">{% for e in emps %}<option value="{{ e.name }} ({{ e.emp_code }})">{{ e.designation or '' }}{{ ' · inactive' if e.status != 'active' }}</option>{% endfor %}</datalist>
+  <div id="lwho" class="lt-who" hidden></div>
+</div>
+<div class="card">
+  <div class="card-head"><h2>2️⃣ Choose the letter</h2><small class="muted">Opens ready to print – filled with the employee's details. You can change any words before printing.</small></div>
+  <div class="lt-grid">
+    {% for k, v in kinds.items() %}{% if k not in salary_kinds or can('payroll.view') %}
+    <a class="lt-card" data-kind="{{ k }}" href="#" style="--i: {{ loop.index0 }}"><span class="lt-ic">{{ v[0] }}</span><b>{{ v[1] }}</b><small>{{ v[2] }}</small><em>Open →</em></a>
+    {% endif %}{% endfor %}
+    <a class="lt-card" href="{{ url_for('warnings_page') }}"><span class="lt-ic">⚠️</span><b>Warning / show-cause letter</b><small>Record a warning, then print its letter</small><em>Go to warnings →</em></a>
+  </div>
+</div>
+<script>
+(function(){var E={ {% for e in emps %}"{{ e.name }} ({{ e.emp_code }})":[{{ e.id }},"{{ e.designation or '' }}","{{ e.dept or '' }}","{{ e.status }}"]{{ ',' if not loop.last }}{% endfor %} };
+var q=document.getElementById('lq'),w=document.getElementById('lwho'),base="{{ url_for('letter', eid=0, kind='KIND') }}";
+function cur(){return E[q.value]}
+function upd(){var c=cur();document.querySelectorAll('.lt-card[data-kind]').forEach(function(a){a.classList.toggle('dis',!c);a.href=c?base.replace('/0/','/'+c[0]+'/').replace('KIND',a.dataset.kind):'#'});
+ if(c){w.hidden=false;w.innerHTML='✅ <b></b> <span></span>';w.querySelector('b').textContent=q.value;w.querySelector('span').textContent=[c[1],c[2],c[3]=='active'?'':'inactive'].filter(Boolean).join(' · ')}else w.hidden=true}
+q.addEventListener('input',upd);upd();
+document.querySelectorAll('.lt-card[data-kind]').forEach(function(a){a.addEventListener('click',function(ev){if(!cur()){ev.preventDefault();q.focus();q.classList.add('shake');setTimeout(function(){q.classList.remove('shake')},500)}})});})();
+</script>
+{% endblock %}

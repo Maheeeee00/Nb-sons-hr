@@ -1,0 +1,24 @@
+<div class="doc-list">
+{% for d in (rows if rows is defined and rows else docs) %}{% set ext = (d.filename.rsplit('.', 1)[-1])|lower %}
+  <div class="doc-item {{ 'x-' ~ d.exp_state if d.exp_state }}" style="--i: {{ loop.index0 }}">
+    <a class="doc-ic e-{{ ext }}" href="{{ url_for('doc_file', did=d.id) }}" target="_blank">{{ {'pdf': 'PDF', 'jpg': 'IMG', 'jpeg': 'IMG', 'png': 'IMG', 'gif': 'IMG', 'webp': 'IMG', 'doc': 'DOC', 'docx': 'DOC', 'xls': 'XLS', 'xlsx': 'XLS'}.get(ext, ext|upper) }}</a>
+    <div class="grow">
+      <b><a href="{{ url_for('doc_file', did=d.id) }}" target="_blank">{{ d.title }}</a></b>
+      <small>{% if d.name is defined and d.name %}<a href="{{ url_for('employee_view', eid=d.employee_id) }}#docs">{{ d.name }}</a> · {% endif %}{{ d.doc_type }} · {{ d.uploaded_at[:10]|nicedate }}</small>
+      {% if d.expiry %}<span class="doc-exp">{{ '⛔ Expired' if d.exp_state == 'expired' else ('⏳ Expires' if d.exp_state == 'soon' else '📅 Valid till') }} {{ d.expiry|nicedate }}</span>{% endif %}
+    </div>
+    <div class="btns">
+      <a class="btn sm" href="{{ url_for('doc_file', did=d.id) }}" target="_blank">👁 View</a>
+      <a class="btn sm" href="{{ url_for('doc_file', did=d.id, download=1) }}">⬇</a>
+      {% if can('employees.manage') %}
+      <details class="doc-more"><summary class="btn sm">✏️</summary>
+        <form method="post" action="{{ url_for('doc_edit', did=d.id) }}" class="doc-editf">{{ csrf() }}<input type="hidden" name="next" value="{{ request.full_path }}">
+          <input name="title" value="{{ d.title }}"><select name="doc_type">{% for t in (DOC_TYPES if DOC_TYPES is defined else types) %}<option {{ 'selected' if t == d.doc_type }}>{{ t }}</option>{% endfor %}</select>
+          <input type="date" name="expiry" value="{{ d.expiry or '' }}" title="Expiry date"><button class="btn sm primary">Save</button></form>
+      </details>
+      <form method="post" action="{{ url_for('doc_delete', did=d.id) }}" onsubmit="return confirm('Delete {{ d.title }} permanently?')">{{ csrf() }}<input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn sm danger">🗑</button></form>
+      {% endif %}
+    </div>
+  </div>
+{% endfor %}
+</div>

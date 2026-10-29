@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head>{% include "_doc_head.html" %}<title>Final settlement – {{ e.name }}</title></head>
+<body class="dc-page">
+<div class="dc-tools">
+  <button class="btn primary" onclick="window.print()">🖨️ Print / Save as PDF</button>
+  {% if s.status != 'final' %}<a class="btn" href="{{ url_for('settlement_edit', eid=e.id) }}">✏️ Edit settlement</a>{% endif %}
+  <a class="btn" href="{{ url_for('settlements') }}">&larr; Settlements</a>
+  <a class="btn" href="{{ url_for('letter', eid=e.id, kind='experience') }}">🏅 Experience letter</a>
+  <a class="btn" href="{{ url_for('letter', eid=e.id, kind='relieving') }}">👋 Relieving letter</a>
+</div>
+<div class="dc">
+  <div class="dc-band">
+    <div class="dc-co"><img src="{{ url_for('static', filename='logo.png') }}" alt=""><div><h1>{{ settings.company_name }}</h1><small>{{ settings.company_address }}</small></div></div>
+    <div class="dc-title"><b>Final Settlement</b><span>{{ 'FINAL' if s.status == 'final' else 'DRAFT' }} · #{{ '%04d'|format(s.id) }}</span></div>
+  </div>
+  <div class="dc-body">
+    <table class="dc-t">
+      <tr><th>Employee</th><td>{{ e.name }}</td><th>Code</th><td>{{ e.emp_code }}</td></tr>
+      <tr><th>Designation</th><td>{{ e.designation or '—' }}</td><th>Department</th><td>{{ e.dept or '—' }}</td></tr>
+      <tr><th>CNIC</th><td>{{ e.cnic or '—' }}</td><th>Joining date</th><td>{{ e.join_date|nicedate or '—' }}</td></tr>
+      <tr><th>Last working day</th><td>{{ s.exit_date|nicedate }}</td><th>Exit type</th><td>{{ s.exit_type }}{% if s.reason %} – {{ s.reason }}{% endif %}</td></tr>
+      <tr><th>Monthly gross</th><td>{{ settings.currency }} {{ ((e.basic_salary or 0) + (e.allowances or 0))|money }}</td><th>Bank account</th><td>{{ e.bank_account or '—' }}</td></tr>
+    </table>
+    <table class="dc-t">
+      <tr><th>Payments</th><th class="n">{{ settings.currency }}</th><th>Recoveries</th><th class="n">{{ settings.currency }}</th></tr>
+      <tr><td>Salary – {{ s.salary_days|num }} day(s) of final month</td><td class="n">{{ s.salary_amount|money }}</td><td>Loan / advance recovery</td><td class="n">{{ s.loan_recovery|money }}</td></tr>
+      <tr><td>Unused leave – {{ s.encash_days|num }} day(s)</td><td class="n">{{ s.encash_amount|money }}</td><td>Assets not returned</td><td class="n">{{ s.asset_deduction|money }}</td></tr>
+      <tr><td>Other{% if s.other_add_note %} – {{ s.other_add_note }}{% endif %}</td><td class="n">{{ s.other_add|money }}</td><td>Other{% if s.other_ded_note %} – {{ s.other_ded_note }}{% endif %}</td><td class="n">{{ s.other_ded|money }}</td></tr>
+      <tr class="tot"><td>Total payments</td><td class="n">{{ (s.salary_amount + s.encash_amount + s.other_add)|money }}</td><td>Total recoveries</td><td class="n">{{ (s.loan_recovery + s.asset_deduction + s.other_ded)|money }}</td></tr>
+    </table>
+    <div style="display:flex;justify-content:flex-end"><div class="ps-net" style="min-width:300px;border-radius:12px;padding:14px 18px;color:#fff;background:linear-gradient(135deg,#0e7c86,#0f2a44);-webkit-print-color-adjust:exact;print-color-adjust:exact">
+      <small style="display:block;font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;font-weight:700">{{ 'Net payable to employee' if s.net >= 0 else 'Net recoverable from employee' }}</small>
+      <b style="font-size:26px">{{ settings.currency }} {{ (s.net|abs)|money }}</b></div></div>
+    <h3 style="font-size:14px;margin:18px 0 6px">Asset return checklist</h3>
+    {% if assets %}<table class="dc-t"><tr><th>Asset</th><th>Returned</th><th class="n">Deduction</th></tr>
+      {% for a in assets %}<tr><td>{{ a.code }} · {{ a.name }}</td><td>{{ '☑ Yes' if a.returned else '☐ No' }}</td><td class="n">{{ a.deduction|money }}</td></tr>{% endfor %}</table>
+    {% else %}<p>No company assets were held by the employee.</p>{% endif %}
+    {% if s.remarks %}<p><b>Remarks:</b> {{ s.remarks }}</p>{% endif %}
+    <p style="font-size:13px;color:#334155">I, <b>{{ e.name }}</b>, confirm that I have received the above amount in full and final settlement of all my dues, and I have no further claim against {{ settings.company_name }}.</p>
+    <div class="dc-sign"><div>Prepared by (HR)<small>{{ s.created_by }}</small></div><div>Approved by<small>Authorized signatory</small></div><div>Employee signature<small>{{ e.name }}</small></div></div>
+  </div>
+  <div class="dc-foot"><span>{{ settings.company_name }} · Final settlement #{{ '%04d'|format(s.id) }}</span><span>Printed {{ now.strftime('%d %b %Y, %I:%M %p') }}</span></div>
+</div>
+</body></html>

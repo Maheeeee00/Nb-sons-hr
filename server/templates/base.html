@@ -104,6 +104,18 @@
       {% if can('leaves.view', 'leaves.approve') %}
         {{ nav('leaves', '🌴', 'Leaves', ('<span class="pill">%d</span>' % pending_leaves) if pending_leaves else '') }}
       {% endif %}
+      {% if can('employees.view', 'payroll.view', 'attendance.view', 'attendance.manage', 'leaves.view') %}
+        {% set hr_eps = ['holidays', 'increments', 'settlements', 'settlement_edit', 'documents', 'letters', 'warnings_page'] %}
+        <details class="navgroup" {{ 'open' if request.endpoint in hr_eps }}>
+          <summary class="{{ 'active' if request.endpoint in hr_eps }}"><span class="ic">🧰</span><span class="tx">HR Tools</span><span class="chev">›</span></summary>
+          <div class="sub">
+            {{ nav('holidays', '•', 'Public Holidays') }}
+            {% if can('payroll.view') %}{{ nav('increments', '•', 'Increments & Promotions') }}{{ nav('settlements', '•', 'Final Settlement') }}{% endif %}
+            {% if can('employees.view') %}{{ nav('documents', '•', 'Employee Documents') }}{{ nav('warnings_page', '•', 'Warnings & Discipline') }}{% endif %}
+            {% if can('employees.manage') %}{{ nav('letters', '•', 'HR Letters') }}{% endif %}
+          </div>
+        </details>
+      {% endif %}
       {% if can('payroll.view', 'assets.view') %}<div class="nav-label">Salary & Assets</div>{% endif %}
       {% if can('payroll.view') %}
         {% set pay_eps = ['payroll', 'payroll_edit', 'loans', 'loan_view'] %}

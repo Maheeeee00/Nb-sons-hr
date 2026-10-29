@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% block title %}Increments & Promotions{% endblock %}
+{% block heading %}Increments, promotions & salary history{% endblock %}
+{% block actions %}
+  {% if can('payroll.manage') %}<a class="btn primary" href="#give" onclick="document.getElementById('inew').open=true">📈 Give increment / promotion</a>{% endif %}
+{% endblock %}
+{% block content %}
+<div class="kpis">
+  <div class="kpi"><span class="ki bg-b">📈</span><div><div class="kv2" data-count="{{ kp.count }}">0</div><div class="kl">Salary changes in {{ yr }}</div></div></div>
+  <div class="kpi"><span class="ki bg-f">🏆</span><div><div class="kv2" data-count="{{ kp.promotions }}">0</div><div class="kl">Promotions in {{ yr }}</div></div></div>
+  <div class="kpi"><span class="ki bg-e">💰</span><div><div class="kv2" style="font-size:22px">{{ '+' if kp.added > 0 }}{{ kp.added|money }}</div><div class="kl">Monthly salary bill change ({{ settings.currency }})</div></div></div>
+</div>
+
+{% if can('payroll.manage') %}
+<details class="card fold" id="inew" {{ 'open' if emp or not rows }}>
+  <summary id="give"><h2 style="display:inline">📈 Give an increment or promotion</h2></summary>
+  <form method="post" style="margin-top:12px" id="incf">{{ csrf() }}
+    <div class="form-grid">
+      <div><label>Employee *</label><select name="employee_id" id="iemp" required><option value="">— choose —</option>
+        {% for e in emps %}<option value="{{ e.id }}" data-b="{{ e.basic_salary or 0 }}" data-a="{{ e.allowances or 0 }}" data-d="{{ e.designation or '' }}" {{ 'selected' if emp == e.id }}>{{ e.name }} ({{ e.emp_code }})</option>{% endfor %}</select></div>
+      <div><label>Type</label><select name="kind" id="ikind">{% for k, v in kinds.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+      <div><label>Effective from *</label><input type="date" name="eff_date" required value="{{ today.replace(day=1).isoformat() }}"></div>
+      <div><label>Increase by % <small class="muted">(fills the new salary)</small></label><input type="number" step="any" id="ipct" placeholder="e.g. 10"></div>
+      <div><label>New basic salary *</label><input type="number" step="any" min="0" name="new_basic" id="ib" required></div>
+      <div><label>New allowances *</label><input type="number" step="any" min="0" name="new_allow" id="ia" required></div>
+      <div><label>New designation <small class="muted">(for promotion)</small></label><input name="new_desig" id="id_"></div>
+      <div><label>Reason / remarks</label><input name="reason" placeholder="e.g. Annual increment, good performance"></div>
+    </div>
+    <div class="inc-preview" id="iprev" hidden></div>
+    <div class="btns" style="margin-top:12px"><button class="btn primary">💾 Save & update salary</button>
+      <span class="muted">The new salary is used from the next payroll you generate. Old payslips are not changed.</span></div>
+  </form>
+</details>
+<script>
+(function(){var s=document.getElementById('iemp'),b=document.getElementById('ib'),a=document.getElementById('ia'),d=document.getElementById('id_'),p=document.getElementById('ipct'),pr=document.getElementById('iprev'),k=document.getElementById('ikind');
+var f=function(n){return Math.round(n).toLocaleString('en-US')};
+function cur(){var o=s.options[s.selectedIndex];return o&&o.value?{b:+o.dataset.b,a:+o.dataset.a,d:o.dataset.d}:null}
+function load(){var c=cur();if(!c){pr.hidden=true;return}b.value=c.b;a.value=c.a;d.value=c.d;d.placeholder=c.d;p.value='';show()}
+function show(){var c=cur();if(!c){pr.hidden=true;return}var og=c.b+c.a,ng=(+b.value||0)+(+a.value||0),df=ng-og;
+ pr.hidden=false;pr.className='inc-preview '+(df>0?'up':(df<0?'down':''));
+ pr.innerHTML='<span>Now <b>'+f(og)+'</b></span><span class="ar">➜</span><span>New <b>'+f(ng)+'</b></span><span class="chg">'+(df>=0?'+':'')+f(df)+(og?' ('+(df*100/og).toFixed(1)+'%)':'')+'</span>'+(d.value&&d.value!==c.d?'<span class="pro">🏆 '+c.d+' → '+d.value+'</span>':'');
+ if(d.value&&d.value!==c.d&&k.value==='increment')k.value='promotion';}
+p.addEventListener('input',function(){var c=cur();if(!c)return;var r=1+(+p.value||0)/100;b.value=Math.round(c.b*r);a.value=Math.round(c.a*r);show()});
+s.addEventListener('change',load);[b,a,d].forEach(function(el){el.addEventListener('input',show)});if(s.value)load();})();
+</script>
+{% endif %}
+
+<div class="card">
+  <div class="card-head"><h2>🧾 Salary history</h2>
+    <form class="inline" method="get"><select name="emp" onchange="this.form.submit()"><option value="">All employees</option>
+      {% for e in emps %}<option value="{{ e.id }}" {{ 'selected' if emp == e.id }}>{{ e.name }}</option>{% endfor %}</select></form></div>
+  {% if rows %}
+  <div class="inc-list">
+  {% for r in rows %}{% set og = r.old_basic + r.old_allow %}{% set ng = r.new_basic + r.new_allow %}{% set df = ng - og %}
+    <div class="inc-row k-{{ r.kind }}" style="--i: {{ loop.index0 }}">
+      <div class="inc-ic">{{ {'increment': '📈', 'promotion': '🏆', 'decrement': '📉', 'adjustment': '⚖️'}[r.kind] }}</div>
+      <div class="grow">
+        <b><a href="{{ url_for('employee_view', eid=r.employee_id) }}">{{ r.name }}</a></b> <small class="muted">{{ r.emp_code }}{% if r.dept %} · {{ r.dept }}{% endif %}</small>
+        <div class="inc-sub"><span class="badge inc-b-{{ r.kind }}">{{ kinds[r.kind] }}</span> from <b>{{ r.eff_date|nicedate }}</b>
+          {% if r.new_desig and r.new_desig != r.old_desig %} · {{ r.old_desig or '—' }} → <b>{{ r.new_desig }}</b>{% endif %}
+          {% if r.reason %} · {{ r.reason }}{% endif %} <span class="muted">· by {{ r.created_by }}</span></div>
+      </div>
+      <div class="inc-amt"><small>{{ og|money }} → </small><b>{{ ng|money }}</b>
+        <span class="{{ 'up' if df > 0 else ('down' if df < 0 else '') }}">{{ '+' if df > 0 }}{{ df|money }}{% if og %} ({{ '%+.1f'|format(df * 100 / og) }}%){% endif %}</span></div>
+      {% if can('payroll.manage') and latest.get(r.employee_id) == r.id %}
+      <form method="post" action="{{ url_for('increment_undo', iid=r.id) }}" onsubmit="return confirm('Undo this change? {{ r.name }} goes back to {{ og|money }} salary{% if r.old_desig %} and designation {{ r.old_desig }}{% endif %}.')">{{ csrf() }}
+        <button class="btn sm" title="Undo">↶ Undo</button></form>{% endif %}
+    </div>
+  {% endfor %}
+  </div>
+  {% else %}<p class="muted">No salary changes recorded yet. Give an increment above, or change a salary in Edit profile – every change is saved here automatically.</p>{% endif %}
+</div>
+<script>document.querySelectorAll('[data-count]').forEach(function(el){var end=parseFloat(el.dataset.count)||0,t0=null;function st(ts){if(!t0)t0=ts;var k=Math.min((ts-t0)/800,1);el.textContent=Math.round(end*(1-Math.pow(1-k,3)));if(k<1)requestAnimationFrame(st)}requestAnimationFrame(st)});</script>
+{% endblock %}

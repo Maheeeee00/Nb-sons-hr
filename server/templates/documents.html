@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% macro size(n) -%}{%- if n >= 1048576 -%}{{ '%.1f'|format(n / 1048576) }} MB{%- else -%}{{ ((n or 0) / 1024)|round|int }} KB{%- endif -%}{%- endmacro %}
+{% block title %}Employee Documents{% endblock %}
+{% block heading %}Employee documents{% endblock %}
+{% block actions %}{% if can('employees.manage') %}<a class="btn primary" href="#up" onclick="document.getElementById('dup').open=true">📤 Upload documents</a>{% endif %}{% endblock %}
+{% block content %}
+<div class="kpis">
+  <div class="kpi"><span class="ki bg-b">📁</span><div><div class="kv2">{{ kp.total }}</div><div class="kl">Documents · {{ size(kp.size) }}</div></div></div>
+  <a class="kpi" href="{{ url_for('documents', show='expiring') }}"><span class="ki bg-c">⏳</span><div><div class="kv2">{{ kp.soon }}</div><div class="kl">Expiring within 30 days</div></div></a>
+  <a class="kpi" href="{{ url_for('documents', show='expiring') }}"><span class="ki bg-d">⛔</span><div><div class="kv2">{{ kp.expired }}</div><div class="kl">Expired</div></div></a>
+</div>
+{% if can('employees.manage') %}
+<details class="card fold" id="dup" {{ 'open' if pre or not kp.total }}>
+  <summary id="up"><h2 style="display:inline">📤 Upload documents</h2></summary>
+  {% include "_doc_upload.html" %}
+</details>
+{% endif %}
+<div class="card">
+  <div class="tabs"><a href="{{ url_for('documents') }}" class="{{ 'on' if show != 'expiring' }}">All documents</a>
+    <a href="{{ url_for('documents', show='expiring') }}" class="{{ 'on' if show == 'expiring' }}">Expired / expiring{% if kp.soon + kp.expired %} ({{ kp.soon + kp.expired }}){% endif %}</a></div>
+  <form method="get" class="inline" style="margin:10px 0"><input type="hidden" name="show" value="{{ show }}">
+    <div class="rp-searchbox" style="min-width:320px"><span>🔍</span><input name="q" value="{{ term }}" placeholder="Search employee, title or type…"></div>
+    <button class="btn">Search</button>{% if term %}<a class="btn" href="{{ url_for('documents', show=show) }}">Clear</a>{% endif %}</form>
+  {% if rows %}{% include "_doc_list.html" %}
+  {% else %}<p class="muted">{{ 'No documents expiring in the next 30 days. 👍' if show == 'expiring' else 'No documents uploaded yet.' }}</p>{% endif %}
+</div>
+{% endblock %}

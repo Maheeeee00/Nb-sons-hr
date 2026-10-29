@@ -1,0 +1,27 @@
+<div class="wr-list">
+{% for w in warns %}
+  <div class="wr-item k-{{ w.kind }} {{ 'closed' if w.status == 'closed' }}" style="--i: {{ loop.index0 }}">
+    <div class="wr-ic">{{ {'verbal': '🗣️', 'written': '⚠️', 'final': '🛑', 'show_cause': '❓'}[w.kind] }}</div>
+    <div class="grow">
+      <b>{{ w.subject }}</b> <span class="badge wr-b-{{ w.kind }}">{{ (kinds if kinds is defined else WARN_KINDS)[w.kind] }}</span>
+      <span class="badge b-{{ 'closed' if w.status == 'closed' else 'pending' }}">{{ 'Closed' if w.status == 'closed' else 'Open' }}</span>
+      <small>{% if w.name is defined and w.name %}<a href="{{ url_for('employee_view', eid=w.employee_id) }}#warns"><b>{{ w.name }}</b></a> ({{ w.emp_code }}{% if w.total > 1 %} · {{ w.total }} warnings{% endif %}) · {% endif %}{{ w.issued_on|nicedate }} · by {{ w.issued_by }}{% if w.reply_by and w.status == 'open' %} · reply by {{ w.reply_by|nicedate }}{% endif %}</small>
+      {% if w.details %}<p class="wr-d">{{ w.details }}</p>{% endif %}
+      {% if w.response %}<p class="wr-r">💬 {{ w.response }}</p>{% endif %}
+    </div>
+    <div class="btns">
+      <a class="btn sm" href="{{ url_for('warning_letter', wid=w.id) }}" target="_blank">🖨️ Letter</a>
+      {% if can('employees.manage') %}
+        {% if w.status == 'open' %}
+        <details class="doc-more"><summary class="btn sm ok">✔ Close</summary>
+          <form method="post" action="{{ url_for('warning_update', wid=w.id) }}" class="doc-editf">{{ csrf() }}<input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="act" value="close">
+            <input name="response" placeholder="Employee's reply / outcome (optional)" style="min-width:240px"><button class="btn sm primary">Close case</button></form></details>
+        {% else %}
+        <form method="post" action="{{ url_for('warning_update', wid=w.id) }}">{{ csrf() }}<input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="act" value="reopen"><button class="btn sm">↺ Reopen</button></form>
+        {% endif %}
+        <form method="post" action="{{ url_for('warning_update', wid=w.id) }}" onsubmit="return confirm('Delete this warning permanently?')">{{ csrf() }}<input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="act" value="delete"><button class="btn sm danger">🗑</button></form>
+      {% endif %}
+    </div>
+  </div>
+{% endfor %}
+</div>

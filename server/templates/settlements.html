@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% from "_m.html" import badge %}
+{% block title %}Final Settlement{% endblock %}
+{% block heading %}Final settlement (employee exit){% endblock %}
+{% block content %}
+<div class="kpis">
+  <div class="kpi"><span class="ki bg-f">✅</span><div><div class="kv2">{{ kp.final }}</div><div class="kl">Settlements finalized</div></div></div>
+  <div class="kpi"><span class="ki bg-c">📝</span><div><div class="kv2">{{ kp.draft }}</div><div class="kl">Drafts in progress</div></div></div>
+  <div class="kpi"><span class="ki bg-e">💵</span><div><div class="kv2" style="font-size:22px">{{ kp.paid|money }}</div><div class="kl">Total paid in settlements ({{ settings.currency }})</div></div></div>
+</div>
+
+{% if can('payroll.manage') %}
+<div class="card st-start">
+  <div class="card-head"><h2>🚪 Start a final settlement</h2></div>
+  <p class="muted" style="margin-top:0">Works out the last salary, unused leave payment, loan recovery and assets to return – you can change every amount before finalizing.</p>
+  <form method="get" class="inline" onsubmit="if(!this.e.value)return false;location.href='{{ url_for('settlement_edit', eid=0) }}'.replace('/0','/'+this.e.value)+'?exit_date='+this.d.value;return false">
+    <div><label>Employee who is leaving</label><select name="e" required style="min-width:260px"><option value="">— choose —</option>
+      {% for e in emps %}<option value="{{ e.id }}">{{ e.name }} ({{ e.emp_code }}){{ ' · inactive' if e.status != 'active' }}</option>{% endfor %}</select></div>
+    <div><label>Last working day</label><input type="date" name="d" value="{{ today.isoformat() }}"></div>
+    <button class="btn primary">Continue →</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-head"><h2>📚 Settlements</h2></div>
+  {% if rows %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Employee</th><th>Last day</th><th>Exit type</th><th class="num">Net payable</th><th>Status</th><th></th></tr></thead>
+    <tbody>{% for r in rows %}
+      <tr><td><a href="{{ url_for('employee_view', eid=r.employee_id) }}"><b>{{ r.name }}</b></a><br><small>{{ r.emp_code }}{% if r.dept %} · {{ r.dept }}{% endif %}</small></td>
+        <td>{{ r.exit_date|nicedate }}</td><td>{{ r.exit_type }}</td>
+        <td class="num"><b class="{{ 'neg' if r.net < 0 }}">{{ r.net|money }}</b></td>
+        <td>{{ badge('final' if r.status == 'final' else 'draft') }}</td>
+        <td><div class="btns"><a class="btn sm" href="{{ url_for('settlement_print', sid=r.id) }}">🖨️ Sheet</a>
+          {% if r.status != 'final' and can('payroll.manage') %}<a class="btn sm primary" href="{{ url_for('settlement_edit', eid=r.employee_id) }}">✏️ Continue</a>{% endif %}</div></td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">No settlements yet.</p>{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% block title %}Public Holidays{% endblock %}
+{% block heading %}Public holidays · {{ year }}{% endblock %}
+{% block actions %}
+  <a class="btn sm" href="{{ url_for('holidays', year=year - 1) }}">&larr; {{ year - 1 }}</a>
+  <a class="btn sm" href="{{ url_for('holidays', year=year + 1) }}">{{ year + 1 }} &rarr;</a>
+  {% if can('attendance.manage', 'settings') %}<a class="btn primary" href="#add" onclick="document.getElementById('hadd').open=true">➕ Add holiday</a>{% endif %}
+{% endblock %}
+{% block content %}
+<div class="kpis">
+  <div class="kpi"><span class="ki bg-b">🎉</span><div><div class="kv2" data-count="{{ rows|length }}">0</div><div class="kl">Holidays in {{ year }}</div></div></div>
+  <div class="kpi"><span class="ki bg-f">⏭️</span><div><div class="kv2" style="font-size:18px">{{ upcoming.name if upcoming else '—' }}</div>
+    <div class="kl">{% if upcoming %}Next holiday · {{ upcoming.date|nicedate }} · {{ 'today' if days_to == 0 else ('tomorrow' if days_to == 1 else 'in %d days'|format(days_to)) }}{% else %}No upcoming holiday added{% endif %}</div></div></div>
+  <div class="kpi"><span class="ki bg-e">🗓️</span><div><div class="kv2" data-count="{{ workdays }}">0</div><div class="kl">Working days in {{ year }} (after weekly off & holidays)</div></div></div>
+</div>
+
+<div class="note hr-note">🎉 On a public holiday nobody is marked absent, no salary is cut, and the day is <b>not</b> taken from leave balances. Attendance, the monthly report, payroll and leaves all skip it automatically.</div>
+
+{% if can('attendance.manage', 'settings') %}
+<details class="card fold" id="hadd" {{ 'open' if not rows }}>
+  <summary id="add"><h2 style="display:inline">➕ Add a holiday</h2></summary>
+  <form method="post" style="margin-top:12px">{{ csrf() }}<input type="hidden" name="act" value="add">
+    <div class="form-grid">
+      <div><label>Holiday name *</label><input name="name" required placeholder="e.g. Eid ul Fitr" list="hnames"></div>
+      <div><label>From date *</label><input type="date" name="start" required value="{{ year }}-{{ today.strftime('%m-%d') if year == today.year else '01-01' }}"></div>
+      <div><label>To date <small class="muted">(for 2–3 day holidays like Eid)</small></label><input type="date" name="end"></div>
+      <div><label>Type</label><select name="kind"><option value="public">National / public</option><option value="religious">Religious</option><option value="company">Company holiday</option></select></div>
+    </div>
+    <datalist id="hnames">{% for n in ['Eid ul Fitr', 'Eid ul Adha', 'Ashura (9th & 10th Muharram)', 'Eid Milad un Nabi', 'Shab-e-Barat', 'Kashmir Solidarity Day', 'Pakistan Day', 'Labour Day', 'Youm-e-Takbeer', 'Independence Day', 'Iqbal Day', 'Quaid-e-Azam Day / Christmas', 'General Election', 'Company annual day'] %}<option value="{{ n }}">{% endfor %}</datalist>
+    <div class="btns" style="margin-top:12px"><button class="btn primary">💾 Save holiday</button></div>
+  </form>
+  <form method="post" style="margin-top:12px" class="hr-pk">{{ csrf() }}<input type="hidden" name="act" value="pk">
+    <span>🇵🇰 One click: add Pakistan's fixed national holidays for {{ year }} (5 Feb, 23 Mar, 1 May, 28 May, 14 Aug, 9 Nov, 25 Dec).</span>
+    <button class="btn ok sm">Add national holidays</button>
+  </form>
+</details>
+{% endif %}
+
+<div class="hr-months">
+  {% for mi in range(1, 13) %}{% set hs = months.get(mi, []) %}
+  <div class="card hr-month {{ 'has' if hs }} {{ 'now' if year == today.year and mi == today.month }}" style="--i: {{ loop.index0 }}">
+    <div class="hr-mh"><b>{{ month_names[mi] }}</b><span>{{ hs|length or '' }}</span></div>
+    {% for h in hs %}
+      <div class="hr-hol {{ 'past' if h.date < today_s }} k-{{ h.kind }}">
+        <div class="hr-dt"><b>{{ h.date[8:10] }}</b><small>{{ (h.date|dayname)[:3] }}</small></div>
+        <div class="grow"><b>{{ h.name }}</b><small>{{ {'public': 'National', 'religious': 'Religious', 'company': 'Company'}[h.kind] or h.kind }}</small></div>
+        {% if can('attendance.manage', 'settings') %}
+        <form method="post" onsubmit="return confirm('Remove {{ h.name }} on {{ h.date|nicedate }}?\n\nThat day becomes a normal working day again.')">{{ csrf() }}
+          <input type="hidden" name="act" value="delete"><input type="hidden" name="id" value="{{ h.id }}">
+          <button class="hr-x" title="Remove">✕</button></form>{% endif %}
+      </div>
+    {% else %}<div class="hr-none">No holidays</div>{% endfor %}
+  </div>
+  {% endfor %}
+</div>
+<script>document.querySelectorAll('[data-count]').forEach(function(el){var end=parseFloat(el.dataset.count)||0,t0=null;function st(ts){if(!t0)t0=ts;var k=Math.min((ts-t0)/800,1);el.textContent=Math.round(end*(1-Math.pow(1-k,3)));if(k<1)requestAnimationFrame(st)}requestAnimationFrame(st)});</script>
+{% endblock %}

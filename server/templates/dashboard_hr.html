@@ -10,7 +10,7 @@
   {% if can('assets.manage') %}<a class="hbtn" href="{{ url_for('assets_assign') }}">💻 Assign asset</a>{% endif %}
 {% endcall %}
 
-{% if not workday %}<div class="note">🌙 Today is a weekly off day.</div>{% endif %}
+{% set hol_today = holiday_today() %}{% if hol_today %}<div class="note">🎉 Today is a public holiday: <b>{{ hol_today }}</b>.</div>{% elif not workday %}<div class="note">🌙 Today is a weekly off day.</div>{% endif %}
 
 <div class="sec-title">⚡ Quick actions</div>
 <div class="tiles">

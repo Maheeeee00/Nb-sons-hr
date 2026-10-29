@@ -81,6 +81,7 @@
         <div class="rp-dnum">{{ x.d.day }}<small>{{ x.d.strftime('%a') }}</small></div>
         {% if r %}<div class="rp-dst">{{ LABEL[r.status] }}</div>
           <div class="rp-dtime">{{ r.check_in or '' }}{% if r.check_out %} – {{ r.check_out }}{% endif %}</div>
+        {% elif x.hol %}<div class="rp-dst hol">🎉 {{ x.hol }}</div>
         {% elif x.off %}<div class="rp-dst muted">Off</div>
         {% elif x.d <= today %}<div class="rp-dst muted">Not marked</div>{% endif %}
       </div>
@@ -97,7 +98,7 @@
     <thead>
       <tr class="rp-group"><th class="mr-name"></th><th colspan="{{ dates|length }}">Days of {{ month|monthname }}</th><th colspan="5">Totals</th></tr>
       <tr><th class="mr-name">Employee</th>
-      {% for d in dates %}<th class="{{ 'off' if d.weekday() in off }} {{ 'today' if d == today }}"><b>{{ d.day }}</b><small>{{ d.strftime('%a')[:2] }}</small></th>{% endfor %}
+      {% for d in dates %}<th class="{{ 'off' if d in offd }}{{ ' hol' if hol.get(d.isoformat()) }} {{ 'today' if d == today }}" {% if hol.get(d.isoformat()) %}title="{{ hol.get(d.isoformat()) }}"{% endif %}><b>{{ d.day }}</b><small>{{ d.strftime('%a')[:2] }}</small></th>{% endfor %}
       <th class="mr-tot t-p" title="Present">P</th><th class="mr-tot t-l" title="Late">L</th><th class="mr-tot t-h" title="Half day">H</th><th class="mr-tot t-a" title="Absent">A</th><th class="mr-tot t-lv" title="Leave">LV</th></tr>
     </thead>
     <tbody>
@@ -108,7 +109,7 @@
           <span class="rp-whotxt"><b>{{ r.e.name }}</b><small>{{ r.e.emp_code }} · {{ r.pct }}%</small>
             <span class="rp-bar {{ 'low' if r.pct < 75 else ('mid' if r.pct < 90 else '') }}"><i style="--w: {{ r.pct }}%"></i></span></span></a></td>
         {% for s in r.cells %}{% set d = dates[loop.index0] %}{% set t = r.tips[loop.index0] %}
-          <td class="{{ 'off' if d.weekday() in off }} {{ 'today' if d == today }}">{% if s %}<span class="chip ch-{{ CHIP[s] }} rp-pop" style="--i: {{ loop.index0 }}" data-tip="{{ d.strftime('%a %d %b') }} · {{ LABEL[s] }}{% if t[0] %} · In {{ t[0] }}{% endif %}{% if t[1] %} · Out {{ t[1] }}{% endif %}">{{ CHIP[s] }}</span>{% endif %}</td>
+          <td class="{{ 'off' if d in offd }}{{ ' hol' if hol.get(d.isoformat()) }} {{ 'today' if d == today }}">{% if s %}<span class="chip ch-{{ CHIP[s] }} rp-pop" style="--i: {{ loop.index0 }}" data-tip="{{ d.strftime('%a %d %b') }} · {{ LABEL[s] }}{% if t[0] %} · In {{ t[0] }}{% endif %}{% if t[1] %} · Out {{ t[1] }}{% endif %}">{{ CHIP[s] }}</span>{% endif %}</td>
         {% endfor %}
         <td class="mr-tot t-p">{{ r.c.present }}</td><td class="mr-tot t-l">{{ r.c.late }}</td><td class="mr-tot t-h">{{ r.c.half_day }}</td><td class="mr-tot t-a">{{ r.c.absent }}</td><td class="mr-tot t-lv">{{ r.c.leave }}</td>
       </tr>
@@ -118,7 +119,7 @@
   <div class="mr-legend">
     <span><i class="chip ch-P">P</i> Present</span><span><i class="chip ch-L">L</i> Late</span><span><i class="chip ch-H">H</i> Half day</span>
     <span><i class="chip ch-A">A</i> Absent</span><span><i class="chip ch-LV">LV</i> Leave</span>
-    <span><i class="mr-offbox"></i> Weekly off</span><span><i class="mr-todaybox"></i> Today</span>
+    <span><i class="mr-offbox"></i> Weekly off</span><span><i class="mr-offbox hol"></i> Public holiday</span><span><i class="mr-todaybox"></i> Today</span>
     <span class="rp-legend-bar"><i class="rp-bar"><i style="--w:100%"></i></i> Attendance % (green 90%+, amber 75–89%, red below 75%)</span>
   </div>
 </div>

@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.1.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -118,6 +118,29 @@ CREATE INDEX IF NOT EXISTS idx_lpay_loan ON loan_payments(loan_id);
 CREATE TABLE IF NOT EXISTS audit_log(
   id INTEGER PRIMARY KEY, at TEXT NOT NULL, username TEXT, ip TEXT, action TEXT NOT NULL, detail TEXT);
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
+CREATE TABLE IF NOT EXISTS holidays(
+  id INTEGER PRIMARY KEY, date TEXT UNIQUE NOT NULL, name TEXT NOT NULL, kind TEXT DEFAULT 'public');
+CREATE TABLE IF NOT EXISTS increments(
+  id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  eff_date TEXT NOT NULL, kind TEXT DEFAULT 'increment', old_basic REAL, old_allow REAL, new_basic REAL, new_allow REAL,
+  old_desig TEXT, new_desig TEXT, reason TEXT, created_by TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS settlements(
+  id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  exit_date TEXT, exit_type TEXT, reason TEXT, salary_days REAL DEFAULT 0, salary_amount REAL DEFAULT 0,
+  encash_days REAL DEFAULT 0, encash_amount REAL DEFAULT 0, loan_recovery REAL DEFAULT 0, asset_deduction REAL DEFAULT 0,
+  other_add REAL DEFAULT 0, other_add_note TEXT, other_ded REAL DEFAULT 0, other_ded_note TEXT, net REAL DEFAULT 0,
+  assets_json TEXT, remarks TEXT, status TEXT DEFAULT 'draft', created_by TEXT, created_at TEXT, finalized_on TEXT);
+CREATE TABLE IF NOT EXISTS emp_documents(
+  id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  title TEXT NOT NULL, doc_type TEXT, filename TEXT NOT NULL, orig_name TEXT, size INTEGER DEFAULT 0,
+  expiry TEXT, notes TEXT, uploaded_by TEXT, uploaded_at TEXT);
+CREATE TABLE IF NOT EXISTS warnings(
+  id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  issued_on TEXT NOT NULL, kind TEXT DEFAULT 'written', subject TEXT NOT NULL, details TEXT, action TEXT,
+  reply_by TEXT, status TEXT DEFAULT 'open', response TEXT, issued_by TEXT, created_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_inc_emp ON increments(employee_id);
+CREATE INDEX IF NOT EXISTS idx_doc_emp ON emp_documents(employee_id);
+CREATE INDEX IF NOT EXISTS idx_warn_emp ON warnings(employee_id);
 CREATE INDEX IF NOT EXISTS idx_att_date ON attendance(date);
 CREATE INDEX IF NOT EXISTS idx_asg_asset ON asset_assignments(asset_id);
 CREATE INDEX IF NOT EXISTS idx_asg_emp ON asset_assignments(employee_id);
@@ -274,8 +297,31 @@ def weekly_off():
     return {int(p) for p in raw.split(",") if p.strip().isdigit()}
 
 
+def holiday_map():
+    """{'YYYY-MM-DD': 'Holiday name'} for all public holidays (paid days off, never counted absent)."""
+    from flask import has_app_context
+    if has_app_context() and "holidays" in g:
+        return g.holidays
+    try:
+        if has_app_context():
+            m = {r["date"]: r["name"] for r in q("SELECT date, name FROM holidays")}
+        else:
+            con = sqlite3.connect(DB_PATH, timeout=15)
+            m = dict(con.execute("SELECT date, name FROM holidays").fetchall())
+            con.close()
+    except Exception:                                  # noqa: BLE001
+        m = {}
+    if has_app_context():
+        g.holidays = m
+    return m
+
+
+def holiday_name(d):
+    return holiday_map().get(d.isoformat() if hasattr(d, "isoformat") else str(d))
+
+
 def is_workday(d):
-    return d.weekday() not in weekly_off()
+    return d.weekday() not in weekly_off() and not holiday_name(d)
 
 
 def parse_date(s, default=None):
@@ -611,7 +657,11 @@ AUDIT_NAMES = {
     "loans": "Gave a loan", "loan_view": "Changed a loan", "settings_page": "Changed settings", "recycle_bin": "Recycle bin",
     "users": "Changed users", "user_perms_page": "Changed a user's permissions", "roles_page": "Changed roles & permissions", "change_password": "Changed own password",
     "asset_new": "Added asset", "asset_edit": "Edited asset", "asset_assign": "Assigned asset",
-    "asset_return": "Received asset back", "asset_delete": "Deleted asset", "assets_assign": "Assigned asset", "assets_import": "Imported assets (page)",
+    "asset_return": "Received asset back", "holidays": "Changed public holidays",
+    "increments": "Gave increment / promotion", "increment_undo": "Undid salary change", "settlement_edit": "Final settlement",
+    "settlement_delete": "Deleted / reopened settlement", "doc_upload": "Uploaded employee document",
+    "doc_delete": "Deleted employee document", "doc_edit": "Edited employee document", "warnings_page": "Issued warning",
+    "warning_update": "Changed warning", "asset_delete": "Deleted asset", "assets_assign": "Assigned asset", "assets_import": "Imported assets (page)",
 }
 _SKIP_FIELDS = {"csrf", "password", "new", "confirm", "current", "token", "changed"}
 
@@ -1140,6 +1190,7 @@ def employee_edit(eid):
         else:
             x(f"UPDATE employees SET emp_code=?, {', '.join(f + '=?' for f in EMP_FIELDS)} WHERE id=?",
               [code] + [d[f] for f in EMP_FIELDS] + [eid])
+            log_salary_change(eid, e, d.get("basic_salary"), d.get("allowances"), d.get("designation"), "Changed in Edit profile")
             if d["status"] == "inactive":
                 x("UPDATE users SET active=0 WHERE employee_id=?", (eid,))
             flash("Employee updated.", "ok")
@@ -1181,6 +1232,7 @@ def employee_bulk_edit():
                 vals["join_date"] = e["join_date"]
             db().execute(f"UPDATE employees SET {', '.join(f + '=?' for f in QUICK_FIELDS)} WHERE id=?",
                          [vals[f] for f in QUICK_FIELDS] + [eid])
+            log_salary_change(eid, e, vals["basic_salary"], vals["allowances"], vals["designation"], "Changed in Edit Employees", commit=False)
             if vals["status"] == "inactive" and e["status"] != "inactive":
                 db().execute("UPDATE users SET active=0 WHERE employee_id=?", (eid,))
             saved += 1
@@ -1221,7 +1273,8 @@ def employee_view(eid):
     counts = Counter(r["status"] for r in recs.values())
     first = date(y, m, 1)
     cal = [None] * first.weekday() + [
-        {"d": d, "rec": recs.get(d.isoformat()), "work": is_workday(d), "future": d > date.today()} for d in month_dates(y, m)]
+        {"d": d, "rec": recs.get(d.isoformat()), "work": is_workday(d), "future": d > date.today(),
+         "hol": holiday_name(d)} for d in month_dates(y, m)]
     workdays_so_far = sum(1 for d in month_dates(y, m) if is_workday(d) and d <= date.today())
     present = counts["present"] + counts["late"] + 0.5 * counts["half_day"]
     att_pct = round(present * 100 / workdays_so_far) if workdays_so_far and recs else None
@@ -1252,7 +1305,15 @@ def employee_view(eid):
     for b in bal:
         b["payable"] = round(b["payable_days"] * rate)
     encash_total = sum(b["payable"] for b in bal)
-    return render_template("employee_view.html", encash_total=encash_total, day_rate=rate,
+    incs = q("SELECT * FROM increments WHERE employee_id=? ORDER BY eff_date DESC, id DESC", (eid,)) \
+        if can("payroll.view") else []
+    docs = [dict(r, exp_state=doc_state(r["expiry"])) for r in
+            q("SELECT * FROM emp_documents WHERE employee_id=? ORDER BY uploaded_at DESC", (eid,))]
+    warns = q("SELECT * FROM warnings WHERE employee_id=? ORDER BY issued_on DESC, id DESC", (eid,))
+    sett = q("SELECT * FROM settlements WHERE employee_id=? ORDER BY id DESC LIMIT 1", (eid,), one=True) \
+        if can("payroll.view") else None
+    return render_template("employee_view.html", incs=incs, docs=docs, warns=warns, sett=sett, DOC_TYPES=DOC_TYPES,
+                           WARN_KINDS=WARN_KINDS, encash_total=encash_total, day_rate=rate,
                            encash_label=ENCASH_BASIS.get(get_settings().get("encash_basis") or "gross26"), team=team, emp_loans=emp_loans, e=e, counts=counts, pays=pays, acct=acct, leaves=leaves,
                            balances=bal, month=month, cal=cal, att_pct=att_pct, tenure=tenure,
                            assets_now=assets_now, assets_past=assets_past, is_head=is_head,
@@ -1878,7 +1939,7 @@ def attendance():
     counts = Counter(r["status"] for r in att.values())
     return render_template("attendance_daily.html", d=d, emps=emps, att=att, counts=counts,
                            prev=(d - timedelta(days=1)).isoformat(), next=(d + timedelta(days=1)).isoformat(),
-                           workday=is_workday(d), weekday=WEEKDAYS[d.weekday()])
+                           workday=is_workday(d), weekday=WEEKDAYS[d.weekday()], holiday=holiday_name(d))
 
 
 @app.post("/attendance/mark")
@@ -1928,7 +1989,9 @@ def attendance_report():
         grid[(r["employee_id"], r["date"])] = r["status"]
         times[(r["employee_id"], r["date"])] = (r["check_in"] or "", r["check_out"] or "")
     off = weekly_off()
-    workdays_so_far = sum(1 for d in dates if d.weekday() not in off and d <= date.today())
+    offd = {d for d in dates if not is_workday(d)}
+    hol = holiday_map()
+    workdays_so_far = sum(1 for d in dates if d not in offd and d <= date.today())
     rows = []
     team = Counter()
     for e in emps:
@@ -1945,7 +2008,7 @@ def attendance_report():
     if request.args.get("export") == "csv":
         head = ["Code", "Name", "Department"] + [str(d.day) for d in dates] + ["Present", "Late", "Half", "Absent", "Leave"]
         body = [[r["e"]["emp_code"], r["e"]["name"], r["e"]["dept"] or ""]
-                + [ATT_CODES.get(s, "") if s else ("OFF" if d.weekday() in off else "") for s, d in zip(r["cells"], dates)]
+                + [ATT_CODES.get(s, "") if s else ("HOLIDAY" if hol.get(d.isoformat()) else ("OFF" if d in offd else "")) for s, d in zip(r["cells"], dates)]
                 + [r["c"]["present"], r["c"]["late"], r["c"]["half_day"], r["c"]["absent"], r["c"]["leave"]]
                 for r in rows]
         return csv_response(f"attendance-{month}.csv", head, body)
@@ -1956,14 +2019,14 @@ def attendance_report():
         if e:
             recs = {r["date"]: r for r in q("SELECT * FROM attendance WHERE employee_id=? AND substr(date,1,7)=?",
                                             (emp_id, month))}
-            days = [{"d": d, "r": recs.get(d.isoformat()), "off": d.weekday() in off} for d in dates]
+            days = [{"d": d, "r": recs.get(d.isoformat()), "off": d in offd, "hol": hol.get(d.isoformat())} for d in dates]
             c = Counter(r["status"] for r in recs.values())
             workdays = sum(1 for x_ in days if not x_["off"] and x_["d"] <= date.today())
             attended = c["present"] + c["late"] + c["half_day"] * 0.5
             detail = {"e": e, "days": days, "c": c, "workdays": workdays,
                       "pct": round(attended * 100 / workdays) if workdays else 0,
                       "unmarked": sum(1 for x_ in days if not x_["off"] and not x_["r"] and x_["d"] <= date.today())}
-    return render_template("attendance_report.html", month=month, dates=dates, rows=rows, off=off,
+    return render_template("attendance_report.html", month=month, dates=dates, rows=rows, off=off, offd=offd, hol=hol,
                            prev=shift_month(y, m, -1), next=shift_month(y, m, 1), depts=all_depts(), dept=dept,
                            search=search, detail=detail, today=date.today(), team=team,
                            team_pct=min(team_pct, 100), workdays_so_far=workdays_so_far)
@@ -3279,7 +3342,11 @@ def to_bin(kind, oid):
         tables = [("employees", e), ("users", _rows("SELECT * FROM users WHERE employee_id=?", (oid,))),
                   ("attendance", _rows("SELECT * FROM attendance WHERE employee_id=?", (oid,))),
                   ("leaves", _rows("SELECT * FROM leaves WHERE employee_id=?", (oid,))),
-                  ("payroll", pay), ("loans", loans), ("loan_payments", lp)]
+                  ("payroll", pay), ("loans", loans), ("loan_payments", lp),
+                  ("increments", _rows("SELECT * FROM increments WHERE employee_id=?", (oid,))),
+                  ("settlements", _rows("SELECT * FROM settlements WHERE employee_id=?", (oid,))),
+                  ("emp_documents", _rows("SELECT * FROM emp_documents WHERE employee_id=?", (oid,))),
+                  ("warnings", _rows("SELECT * FROM warnings WHERE employee_id=?", (oid,)))]
         fix = [("departments", "head_id", oid, _ids(_rows("SELECT id FROM departments WHERE head_id=?", (oid,)))),
                ("employees", "manager_id", oid, _ids(_rows("SELECT id FROM employees WHERE manager_id=?", (oid,)))),
                ("asset_assignments", "employee_id", oid, _ids(_rows("SELECT id FROM asset_assignments WHERE employee_id=?", (oid,))))]
@@ -4095,6 +4162,8 @@ NOTIFY_TYPES = [  # (type, label, permission needed to receive it, important?)
     ("loans_due", "Loan installments due this month", ("payroll.view",), False),
     ("asset_overdue", "Asset not returned on time", ("assets.view", "assets.manage"), False),
     ("birthday", "Birthdays & work anniversaries", ("employees.view",), False),
+    ("doc_expiry", "Employee document expired / expiring within 30 days", ("employees.view",), False),
+    ("holiday", "Public holiday tomorrow", ("attendance.view", "attendance.manage", "leaves.view"), False),
     ("security", "Security: account locked after wrong passwords", ("users",), True),
     ("backup", "Daily backup failed", ("users", "backup"), True),
 ]
@@ -4170,6 +4239,20 @@ def build_alerts():
                 add("birthday", f"wa-{e['id']}-{today.year}", "🎉 Work anniversary",
                     f"{e['name']} completes {yrs} year{'s' if yrs > 1 else ''} with the company today.",
                     url_for("employee_view", eid=e["id"]))
+    if "doc_expiry" in allowed:
+        for dc in q("""SELECT dc.id, dc.title, dc.expiry, dc.employee_id, e.name FROM emp_documents dc
+                       JOIN employees e ON e.id=dc.employee_id WHERE e.status='active' AND dc.expiry IS NOT NULL
+                       AND dc.expiry<>'' AND dc.expiry<=? ORDER BY dc.expiry LIMIT 10""",
+                    ((today + timedelta(days=30)).isoformat(),)):
+            gone = dc["expiry"] < t
+            add("doc_expiry", f"dx-{dc['id']}-{dc['expiry']}", "📄 Document expired" if gone else "📄 Document expiring soon",
+                f"{dc['name']} · {dc['title']} – {'expired' if gone else 'expires'} {nicedate(dc['expiry'])}",
+                url_for("employee_view", eid=dc["employee_id"]) + "#docs")
+    if "holiday" in allowed:
+        hn = holiday_name(today + timedelta(days=1))
+        if hn:
+            add("holiday", f"hol-{tomorrow}", "🎉 Holiday tomorrow", f"{hn} – {nicedate(tomorrow)}. Office closed.",
+                url_for("holidays"))
     if "security" in allowed:
         since = (datetime.now() - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
         for a in q("""SELECT id, at, username FROM audit_log WHERE action='Account locked' AND at>=?
@@ -4205,6 +4288,573 @@ def api_ping():
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+# --------------------------------------------------------------------------- HR tools (holidays, increments,
+# final settlement, documents, letters, warnings)
+app.jinja_env.globals["holiday_today"] = lambda: holiday_name(date.today())
+
+PK_FIXED_HOLIDAYS = [("02-05", "Kashmir Solidarity Day"), ("03-23", "Pakistan Day"), ("05-01", "Labour Day"),
+                     ("05-28", "Youm-e-Takbeer"), ("08-14", "Independence Day"), ("11-09", "Iqbal Day"),
+                     ("12-25", "Quaid-e-Azam Day")]
+
+
+def _holiday_resync(dates):
+    """After holidays change: clear 'absent' marks on new holidays and recount leave days that cover them."""
+    g.pop("holidays", None)
+    hol = holiday_map()
+    cleared = 0
+    for ds in dates:
+        if ds in hol:
+            cleared += db().execute("DELETE FROM attendance WHERE date=? AND status IN ('absent','leave')", (ds,)).rowcount
+        for lv in q("""SELECT * FROM leaves WHERE status IN ('pending','approved') AND start_date<=? AND end_date>=?""",
+                    (ds, ds)):
+            days = sum(1 for d in daterange(parse_date(lv["start_date"]), parse_date(lv["end_date"])) if is_workday(d))
+            db().execute("UPDATE leaves SET days=? WHERE id=?", (days, lv["id"]))
+            if lv["status"] == "approved":
+                apply_leave_attendance(q("SELECT * FROM leaves WHERE id=?", (lv["id"],), one=True))
+    db().commit()
+    return cleared
+
+
+@app.route("/hr/holidays", methods=["GET", "POST"])
+@perm_required("attendance.view", "attendance.manage", "leaves.view", "settings")
+def holidays():
+    year = request.args.get("year", type=int) or date.today().year
+    if request.method == "POST":
+        if not can("attendance.manage", "settings"):
+            abort(403)
+        act = request.form.get("act")
+        changed = []
+        if act == "add":
+            a = parse_date(request.form.get("start"))
+            b = parse_date(request.form.get("end")) or a
+            name = request.form.get("name", "").strip()
+            kind = request.form.get("kind") if request.form.get("kind") in ("public", "religious", "company") else "public"
+            if not a or not name:
+                flash("Please enter the holiday name and date.", "error")
+            elif b < a or (b - a).days > 14:
+                flash("Check the dates: the end date must be on/after the start, max 15 days.", "error")
+            else:
+                for d in daterange(a, b):
+                    db().execute("""INSERT INTO holidays(date,name,kind) VALUES(?,?,?)
+                                    ON CONFLICT(date) DO UPDATE SET name=excluded.name, kind=excluded.kind""",
+                                 (d.isoformat(), name, kind))
+                    changed.append(d.isoformat())
+                n = _holiday_resync(changed)
+                flash(f"Holiday saved: {name} ({len(changed)} day{'s' if len(changed) > 1 else ''})."
+                      + (f" {n} absent/leave mark(s) on those days were cleared." if n else ""), "ok")
+            year = a.year if a else year
+        elif act == "pk":
+            for md, name in PK_FIXED_HOLIDAYS:
+                ds = f"{year}-{md}"
+                if not q("SELECT 1 FROM holidays WHERE date=?", (ds,), one=True):
+                    db().execute("INSERT INTO holidays(date,name,kind) VALUES(?,?,'public')", (ds, name))
+                    changed.append(ds)
+            n = _holiday_resync(changed)
+            flash(f"Added {len(changed)} Pakistan national holiday(s) for {year}. Add Eid / Ashura / Eid Milad dates "
+                  "yourself (they depend on the moon).", "ok")
+        elif act == "delete":
+            h = q("SELECT * FROM holidays WHERE id=?", (request.form.get("id", type=int),), one=True)
+            if h:
+                x("DELETE FROM holidays WHERE id=?", (h["id"],))
+                _holiday_resync([h["date"]])
+                flash(f"Removed holiday {h['name']} ({nicedate(h['date'])}). That day is a normal working day again.", "ok")
+        return redirect(url_for("holidays", year=year))
+    rows = q("SELECT * FROM holidays WHERE substr(date,1,4)=? ORDER BY date", (str(year),))
+    t = date.today().isoformat()
+    upcoming = q("SELECT * FROM holidays WHERE date>=? ORDER BY date LIMIT 1", (t,), one=True)
+    months = {}
+    for r in rows:
+        months.setdefault(int(r["date"][5:7]), []).append(r)
+    workdays = sum(1 for d in daterange(date(year, 1, 1), date(year, 12, 31)) if is_workday(d))
+    return render_template("holidays.html", rows=rows, year=year, months=months, upcoming=upcoming,
+                           workdays=workdays, month_names=calendar.month_name, today_s=t,
+                           days_to=(parse_date(upcoming["date"]) - date.today()).days if upcoming else None)
+
+
+# ---------- increments & salary history
+INC_KINDS = {"increment": "Increment", "promotion": "Promotion", "decrement": "Salary decrease",
+             "adjustment": "Salary adjustment"}
+
+
+def log_salary_change(eid, old, basic, allow, desig, reason, commit=True):
+    """Record any change of salary or designation in the employee's salary history."""
+    ob, oa = old["basic_salary"] or 0, old["allowances"] or 0
+    nb, na = to_float(basic, ob), to_float(allow, oa)
+    od, nd = (old["designation"] or "").strip(), (desig or "").strip()
+    if abs(nb - ob) < 0.5 and abs(na - oa) < 0.5 and od == nd:
+        return
+    kind = "promotion" if od != nd and nd else ("increment" if nb + na > ob + oa else
+                                               ("decrement" if nb + na < ob + oa else "adjustment"))
+    db().execute("""INSERT INTO increments(employee_id,eff_date,kind,old_basic,old_allow,new_basic,new_allow,old_desig,
+                    new_desig,reason,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 (eid, date.today().isoformat(), kind, ob, oa, nb, na, od, nd, reason,
+                  g.user["username"] if g.get("user") else "", datetime.now().strftime("%Y-%m-%d %H:%M")))
+    if commit:
+        db().commit()
+
+
+@app.route("/hr/increments", methods=["GET", "POST"])
+@perm_required("payroll.view")
+def increments():
+    if request.method == "POST":
+        if not can("payroll.manage"):
+            abort(403)
+        eid = request.form.get("employee_id", type=int)
+        e = q("SELECT * FROM employees WHERE id=?", (eid,), one=True)
+        eff = parse_date(request.form.get("eff_date"))
+        kind = request.form.get("kind") if request.form.get("kind") in INC_KINDS else "increment"
+        nb, na = to_float(request.form.get("new_basic"), -1), to_float(request.form.get("new_allow"), -1)
+        nd = request.form.get("new_desig", "").strip()
+        if not e or not eff or nb < 0 or na < 0:
+            flash("Please choose the employee, the date and the new salary.", "error")
+            return redirect(url_for("increments", emp=eid or ""))
+        nd = nd or (e["designation"] or "")
+        if abs(nb - (e["basic_salary"] or 0)) < 0.5 and abs(na - (e["allowances"] or 0)) < 0.5 and nd == (e["designation"] or ""):
+            flash("Nothing changed – the new salary and designation are the same as now.", "warn")
+            return redirect(url_for("increments", emp=eid))
+        x("""INSERT INTO increments(employee_id,eff_date,kind,old_basic,old_allow,new_basic,new_allow,old_desig,new_desig,
+             reason,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+          (eid, eff.isoformat(), kind, e["basic_salary"] or 0, e["allowances"] or 0, nb, na, e["designation"] or "",
+           nd, request.form.get("reason", "").strip(), g.user["username"], datetime.now().strftime("%Y-%m-%d %H:%M")))
+        x("UPDATE employees SET basic_salary=?, allowances=?, designation=? WHERE id=?", (nb, na, nd or None, eid))
+        old_g, new_g = (e["basic_salary"] or 0) + (e["allowances"] or 0), nb + na
+        flash(f"{INC_KINDS[kind]} saved for {e['name']}: gross {money(old_g)} → {money(new_g)}"
+              + (f" ({(new_g - old_g) * 100 / old_g:+.1f}%)" if old_g else "")
+              + ". New salary is used from the next payroll you generate.", "ok")
+        return redirect(url_for("increments", emp=eid) if request.form.get("back") != "profile"
+                        else url_for("employee_view", eid=eid))
+    emp = request.args.get("emp", type=int)
+    sql = """SELECT i.*, e.name, e.emp_code, d.name dept FROM increments i JOIN employees e ON e.id=i.employee_id
+             LEFT JOIN departments d ON d.id=e.department_id"""
+    args = []
+    if emp:
+        sql += " WHERE i.employee_id=?"
+        args.append(emp)
+    rows = q(sql + " ORDER BY i.eff_date DESC, i.id DESC LIMIT 500", args)
+    latest = {r["employee_id"]: r["id"] for r in q("SELECT employee_id, MAX(id) id FROM increments GROUP BY employee_id")}
+    yr = str(date.today().year)
+    year_rows = [r for r in q("SELECT * FROM increments WHERE substr(eff_date,1,4)=?", (yr,))]
+    kp = {"count": len(year_rows), "promotions": sum(1 for r in year_rows if r["kind"] == "promotion"),
+          "added": sum((r["new_basic"] + r["new_allow"]) - (r["old_basic"] + r["old_allow"]) for r in year_rows)}
+    emps = q("SELECT id, name, emp_code, designation, basic_salary, allowances FROM employees WHERE status='active' ORDER BY name")
+    return render_template("increments.html", rows=rows, emps=emps, emp=emp, kinds=INC_KINDS, latest=latest, kp=kp, yr=yr)
+
+
+@app.post("/hr/increments/<int:iid>/undo")
+@perm_required("payroll.manage")
+def increment_undo(iid):
+    r = q("SELECT * FROM increments WHERE id=?", (iid,), one=True) or abort(404)
+    last = q("SELECT MAX(id) m FROM increments WHERE employee_id=?", (r["employee_id"],), one=True)["m"]
+    if last != iid:
+        flash("Only the latest change of an employee can be undone.", "error")
+    else:
+        x("UPDATE employees SET basic_salary=?, allowances=?, designation=? WHERE id=?",
+          (r["old_basic"], r["old_allow"], r["old_desig"] or None, r["employee_id"]))
+        x("DELETE FROM increments WHERE id=?", (iid,))
+        flash("Undone – the employee is back on the previous salary and designation.", "ok")
+    return redirect(request.form.get("next") or url_for("increments"))
+
+
+# ---------- final settlement
+EXIT_TYPES = ["Resignation", "Termination", "Contract ended", "Retirement", "Absconded", "Death", "Other"]
+
+
+def settlement_calc(e, exit_d):
+    """Work out the default final-settlement figures for an employee leaving on exit_d."""
+    y, m = exit_d.year, exit_d.month
+    dates = month_dates(y, m)
+    workdays = [d for d in dates if is_workday(d)]
+    gross = (e["basic_salary"] or 0) + (e["allowances"] or 0)
+    per_day = gross / len(workdays) if workdays else 0
+    jd = parse_date(e["join_date"])
+    start = max(dates[0], jd) if jd and jd <= exit_d else dates[0]
+    wd = [d for d in workdays if start <= d <= exit_d]
+    c = Counter(r["status"] for r in q("SELECT status FROM attendance WHERE employee_id=? AND date BETWEEN ? AND ?",
+                                       (e["id"], start.isoformat(), exit_d.isoformat())))
+    unpaid = 0
+    for lv in q("""SELECT l.start_date,l.end_date FROM leaves l JOIN leave_types t ON t.id=l.leave_type_id
+                   WHERE l.employee_id=? AND l.status='approved' AND t.paid=0 AND l.start_date<=? AND l.end_date>=?""",
+                (e["id"], exit_d.isoformat(), start.isoformat())):
+        a, b = max(parse_date(lv["start_date"]), start), min(parse_date(lv["end_date"]), exit_d)
+        unpaid += sum(1 for d in daterange(a, b) if is_workday(d))
+    sal_days = max(len(wd) - c["absent"] - 0.5 * c["half_day"] - unpaid, 0)
+    pay = q("SELECT id, net, status FROM payroll WHERE employee_id=? AND month=?", (e["id"], f"{y:04d}-{m:02d}"), one=True)
+    rate = leave_day_rate(e)
+    bal = [b for b in leave_balances(e["id"], exit_d.year) if b["encash"] and b["payable_days"] > 0]
+    enc_days = sum(b["payable_days"] for b in bal)
+    loans_ = [dict(r, balance=max((r["amount"] or 0) - (r["paid"] or 0), 0))
+              for r in q(LOAN_SQL + " WHERE l.employee_id=? AND l.status<>'closed'", (e["id"],))]
+    loans_ = [l for l in loans_ if l["balance"] > 0.5]
+    assets_ = q("""SELECT s.id sid, a.id, a.asset_code, a.name, a.category, a.cost, s.assigned_on FROM asset_assignments s
+                   JOIN assets a ON a.id=s.asset_id WHERE s.employee_id=? AND s.returned_on IS NULL ORDER BY a.name""", (e["id"],))
+    return {"gross": gross, "per_day": per_day, "workdays_month": len(workdays), "worked_workdays": len(wd),
+            "absent": c["absent"] + 0.5 * c["half_day"], "unpaid": unpaid, "salary_days": sal_days,
+            "salary_amount": 0 if pay else round(per_day * sal_days), "payroll": pay, "start": start,
+            "rate": rate, "enc_bal": bal, "encash_days": enc_days, "encash_amount": round(enc_days * rate),
+            "loans": loans_, "loan_recovery": round(sum(l["balance"] for l in loans_)), "assets": assets_}
+
+
+def _sett_net(f):
+    return round(f["salary_amount"] + f["encash_amount"] + f["other_add"]
+                 - f["loan_recovery"] - f["asset_deduction"] - f["other_ded"])
+
+
+@app.route("/hr/settlements")
+@perm_required("payroll.view")
+def settlements():
+    rows = q("""SELECT s.*, e.name, e.emp_code, e.designation, d.name dept FROM settlements s JOIN employees e
+                ON e.id=s.employee_id LEFT JOIN departments d ON d.id=e.department_id ORDER BY s.id DESC""")
+    emps = q("""SELECT id, name, emp_code, status FROM employees e WHERE NOT EXISTS
+                (SELECT 1 FROM settlements s WHERE s.employee_id=e.id AND s.status='final') ORDER BY status, name""")
+    kp = {"final": sum(1 for r in rows if r["status"] == "final"), "draft": sum(1 for r in rows if r["status"] == "draft"),
+          "paid": sum(r["net"] or 0 for r in rows if r["status"] == "final")}
+    return render_template("settlements.html", rows=rows, emps=emps, kp=kp)
+
+
+@app.route("/hr/settlement/<int:eid>", methods=["GET", "POST"])
+@perm_required("payroll.view")
+def settlement_edit(eid):
+    import json
+    e = get_emp(eid)
+    s = q("SELECT * FROM settlements WHERE employee_id=? ORDER BY id DESC LIMIT 1", (eid,), one=True)
+    exit_d = parse_date(request.values.get("exit_date")) or (parse_date(s["exit_date"]) if s else None) or date.today()
+    calc = settlement_calc(e, exit_d)
+    if request.method == "POST":
+        if not can("payroll.manage"):
+            abort(403)
+        if s and s["status"] == "final":
+            flash("This settlement is already final.", "warn")
+            return redirect(url_for("settlement_print", sid=s["id"]))
+        f = {k: to_float(request.form.get(k), 0) for k in ("salary_days", "salary_amount", "encash_days", "encash_amount",
+                                                          "loan_recovery", "other_add", "other_ded")}
+        assets_ = []
+        ded = 0
+        for a in calc["assets"]:
+            d_ = to_float(request.form.get(f"ad_{a['sid']}"), 0)
+            ret = bool(request.form.get(f"ar_{a['sid']}"))
+            ded += 0 if ret else d_
+            assets_.append({"sid": a["sid"], "id": a["id"], "code": a["asset_code"], "name": a["name"],
+                            "returned": ret, "deduction": 0 if ret else d_})
+        f["asset_deduction"] = ded
+        f["net"] = _sett_net(f)
+        vals = (exit_d.isoformat(), request.form.get("exit_type", "Resignation"), request.form.get("reason", "").strip(),
+                f["salary_days"], f["salary_amount"], f["encash_days"], f["encash_amount"], f["loan_recovery"],
+                f["asset_deduction"], f["other_add"], request.form.get("other_add_note", "").strip(), f["other_ded"],
+                request.form.get("other_ded_note", "").strip(), f["net"], json.dumps(assets_),
+                request.form.get("remarks", "").strip())
+        cols = ("exit_date,exit_type,reason,salary_days,salary_amount,encash_days,encash_amount,loan_recovery,"
+                "asset_deduction,other_add,other_add_note,other_ded,other_ded_note,net,assets_json,remarks")
+        if s:
+            x(f"UPDATE settlements SET {', '.join(c + '=?' for c in cols.split(','))} WHERE id=?", vals + (s["id"],))
+            sid = s["id"]
+        else:
+            sid = x(f"INSERT INTO settlements(employee_id,{cols},status,created_by,created_at) "
+                    f"VALUES(?,{','.join('?' * 16)},'draft',?,?)",
+                    (eid,) + vals + (g.user["username"], datetime.now().strftime("%Y-%m-%d %H:%M")))
+        if request.form.get("act") == "final":
+            today_s = date.today().isoformat()
+            left = f["loan_recovery"]
+            for ln in calc["loans"]:
+                amt = min(left, ln["balance"])
+                if amt > 0:
+                    db().execute("""INSERT INTO loan_payments(loan_id,month,amount,paid_on,method,note,created_by)
+                                    VALUES(?,?,?,?,'settlement','Recovered in final settlement',?)""",
+                                 (ln["id"], exit_d.strftime("%Y-%m"), amt, today_s, g.user["username"]))
+                    left -= amt
+                if amt < ln["balance"] - 0.5:
+                    db().execute("UPDATE loans SET status='closed', closed_on=?, notes=COALESCE(notes,'') || ? WHERE id=?",
+                                 (today_s, " Closed in final settlement (balance waived).", ln["id"]))
+            db().commit()
+            for a in assets_:
+                if a["returned"]:
+                    return_asset(a["id"], exit_d.isoformat(), None, "Returned at final settlement")
+            x("UPDATE employees SET status='inactive' WHERE id=?", (eid,))
+            x("UPDATE users SET active=0 WHERE employee_id=?", (eid,))
+            x("UPDATE settlements SET status='final', finalized_on=? WHERE id=?", (today_s, sid))
+            flash(f"Final settlement done for {e['name']}. Net payable {money(f['net'])}. "
+                  "The employee is now Inactive and their login is disabled.", "ok")
+            return redirect(url_for("settlement_print", sid=sid))
+        flash("Settlement saved as draft. Click Finalize when it's paid.", "ok")
+        return redirect(url_for("settlement_edit", eid=eid))
+    saved_assets = {}
+    if s and s["assets_json"]:
+        saved_assets = {a["sid"]: a for a in json.loads(s["assets_json"])}
+    use_saved = bool(s) and not request.args.get("exit_date")
+    return render_template("settlement_form.html", e=e, s=s, c=calc, exit_d=exit_d, use_saved=use_saved,
+                           saved_assets=saved_assets, exit_types=EXIT_TYPES)
+
+
+@app.route("/hr/settlement/<int:sid>/print")
+@perm_required("payroll.view")
+def settlement_print(sid):
+    import json
+    s = q("SELECT * FROM settlements WHERE id=?", (sid,), one=True) or abort(404)
+    e = get_emp(s["employee_id"])
+    assets_ = json.loads(s["assets_json"] or "[]")
+    return render_template("settlement_print.html", s=s, e=e, assets=assets_)
+
+
+@app.post("/hr/settlement/<int:sid>/delete")
+@perm_required("payroll.manage")
+def settlement_delete(sid):
+    s = q("SELECT * FROM settlements WHERE id=?", (sid,), one=True) or abort(404)
+    if s["status"] == "final" and request.form.get("reopen"):
+        x("UPDATE settlements SET status='draft', finalized_on=NULL WHERE id=?", (sid,))
+        flash("Settlement reopened as draft. (Employee status, loans and assets were not changed back.)", "warn")
+        return redirect(url_for("settlement_edit", eid=s["employee_id"]))
+    if s["status"] == "final":
+        flash("A final settlement can't be deleted. Reopen it first.", "error")
+    else:
+        x("DELETE FROM settlements WHERE id=?", (sid,))
+        flash("Draft settlement deleted.", "ok")
+    return redirect(url_for("settlements"))
+
+
+# ---------- employee documents
+DOC_DIR = os.path.join(DATA_DIR, "documents")
+DOC_TYPES = ["CNIC", "Contract", "CV / Resume", "Educational certificate", "Experience letter",
+             "Offer / Appointment letter", "Medical certificate", "Police verification", "Passport / Visa",
+             "Driving licence", "Photo", "Other"]
+DOC_EXT = {".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".csv"}
+DOC_INLINE = {".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".txt"}
+
+
+def doc_state(expiry):
+    d = parse_date(expiry)
+    if not d:
+        return ""
+    if d < date.today():
+        return "expired"
+    return "soon" if (d - date.today()).days <= 30 else "ok"
+
+
+@app.route("/hr/documents")
+@perm_required("employees.view")
+def documents():
+    show = request.args.get("show", "all")
+    term = request.args.get("q", "").strip()
+    sql = """SELECT dc.*, e.name, e.emp_code, e.status emp_status FROM emp_documents dc JOIN employees e ON e.id=dc.employee_id
+             WHERE 1=1"""
+    args = []
+    if term:
+        sql += " AND (e.name LIKE ? OR e.emp_code LIKE ? OR dc.title LIKE ? OR dc.doc_type LIKE ?)"
+        args += [f"%{term}%"] * 4
+    soon = (date.today() + timedelta(days=30)).isoformat()
+    if show == "expiring":
+        sql += " AND dc.expiry IS NOT NULL AND dc.expiry<>'' AND dc.expiry<=?"
+        args.append(soon)
+    rows = [dict(r, exp_state=doc_state(r["expiry"])) for r in q(sql + " ORDER BY dc.uploaded_at DESC LIMIT 1000", args)]
+    allr = q("SELECT expiry, size FROM emp_documents")
+    kp = {"total": len(allr), "size": sum(r["size"] or 0 for r in allr),
+          "expired": sum(1 for r in allr if doc_state(r["expiry"]) == "expired"),
+          "soon": sum(1 for r in allr if doc_state(r["expiry"]) == "soon")}
+    emps = q("SELECT id, name, emp_code FROM employees ORDER BY status, name")
+    return render_template("documents.html", rows=rows, kp=kp, show=show, term=term, emps=emps, types=DOC_TYPES,
+                           pre=request.args.get("emp", type=int))
+
+
+@app.post("/hr/documents/upload")
+@perm_required("employees.manage")
+def doc_upload():
+    eid = request.form.get("employee_id", type=int)
+    e = q("SELECT id, name FROM employees WHERE id=?", (eid,), one=True)
+    files = [f for f in request.files.getlist("file") if f and f.filename]
+    back = url_for("employee_view", eid=eid) + "#docs" if request.form.get("back") == "profile" else url_for("documents")
+    if not e or not files:
+        flash("Choose the employee and at least one file.", "error")
+        return redirect(back)
+    exp = parse_date(request.form.get("expiry"))
+    dtype = request.form.get("doc_type") if request.form.get("doc_type") in DOC_TYPES else "Other"
+    folder = os.path.join(DOC_DIR, str(eid))
+    os.makedirs(folder, exist_ok=True)
+    saved, bad = 0, []
+    for f in files:
+        ext = os.path.splitext(f.filename)[1].lower()
+        if ext not in DOC_EXT:
+            bad.append(f.filename)
+            continue
+        fname = f"{eid}/{secrets.token_hex(8)}{ext}"
+        path = os.path.join(DOC_DIR, fname)
+        f.save(path)
+        size = os.path.getsize(path)
+        title = request.form.get("title", "").strip() or os.path.splitext(f.filename)[0][:80]
+        if len(files) > 1 and request.form.get("title", "").strip():
+            title = f"{title} – {os.path.splitext(f.filename)[0][:40]}"
+        x("""INSERT INTO emp_documents(employee_id,title,doc_type,filename,orig_name,size,expiry,notes,uploaded_by,uploaded_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?)""",
+          (eid, title, dtype, fname, f.filename[:150], size, exp.isoformat() if exp else None,
+           request.form.get("notes", "").strip(), g.user["username"], datetime.now().strftime("%Y-%m-%d %H:%M")))
+        saved += 1
+    if saved:
+        flash(f"Uploaded {saved} document(s) for {e['name']}.", "ok")
+    if bad:
+        flash("Not uploaded (file type not allowed – use PDF, picture, Word or Excel): " + ", ".join(bad), "error")
+    return redirect(back)
+
+
+@app.route("/hr/documents/<int:did>/file")
+@perm_required("employees.view")
+def doc_file(did):
+    dc = q("SELECT * FROM emp_documents WHERE id=?", (did,), one=True) or abort(404)
+    path = os.path.realpath(os.path.join(DOC_DIR, dc["filename"]))
+    if not path.startswith(os.path.realpath(DOC_DIR)) or not os.path.isfile(path):
+        flash("The file for this document is missing from the server PC.", "error")
+        return redirect(url_for("documents"))
+    ext = os.path.splitext(path)[1].lower()
+    inline = ext in DOC_INLINE and not request.args.get("download")
+    return send_file(path, as_attachment=not inline, download_name=dc["orig_name"] or os.path.basename(path))
+
+
+@app.post("/hr/documents/<int:did>/delete")
+@perm_required("employees.manage")
+def doc_delete(did):
+    dc = q("SELECT * FROM emp_documents WHERE id=?", (did,), one=True) or abort(404)
+    x("DELETE FROM emp_documents WHERE id=?", (did,))
+    try:
+        os.remove(os.path.join(DOC_DIR, dc["filename"]))
+    except OSError:
+        pass
+    flash(f"Deleted document: {dc['title']}.", "ok")
+    return redirect(request.form.get("next") or url_for("documents"))
+
+
+@app.post("/hr/documents/<int:did>/edit")
+@perm_required("employees.manage")
+def doc_edit(did):
+    dc = q("SELECT * FROM emp_documents WHERE id=?", (did,), one=True) or abort(404)
+    exp = parse_date(request.form.get("expiry"))
+    x("UPDATE emp_documents SET title=?, doc_type=?, expiry=? WHERE id=?",
+      (request.form.get("title", "").strip() or dc["title"],
+       request.form.get("doc_type") if request.form.get("doc_type") in DOC_TYPES else dc["doc_type"],
+       exp.isoformat() if exp else None, did))
+    flash("Document updated.", "ok")
+    return redirect(request.form.get("next") or url_for("documents"))
+
+
+# ---------- warnings & discipline
+WARN_KINDS = {"verbal": "Verbal warning", "written": "Written warning", "final": "Final warning",
+              "show_cause": "Show-cause notice"}
+
+
+@app.route("/hr/warnings", methods=["GET", "POST"])
+@perm_required("employees.view")
+def warnings_page():
+    if request.method == "POST":
+        if not can("employees.manage"):
+            abort(403)
+        eid = request.form.get("employee_id", type=int)
+        e = q("SELECT id, name FROM employees WHERE id=?", (eid,), one=True)
+        on = parse_date(request.form.get("issued_on")) or date.today()
+        subj = request.form.get("subject", "").strip()
+        kind = request.form.get("kind") if request.form.get("kind") in WARN_KINDS else "written"
+        if not e or not subj:
+            flash("Choose the employee and write the subject.", "error")
+        else:
+            rb = parse_date(request.form.get("reply_by"))
+            wid = x("""INSERT INTO warnings(employee_id,issued_on,kind,subject,details,action,reply_by,status,issued_by,created_at)
+                       VALUES(?,?,?,?,?,?,?,'open',?,?)""",
+                    (eid, on.isoformat(), kind, subj, request.form.get("details", "").strip(),
+                     request.form.get("action", "").strip(), rb.isoformat() if rb else None, g.user["username"],
+                     datetime.now().strftime("%Y-%m-%d %H:%M")))
+            n = q("SELECT COUNT(*) c FROM warnings WHERE employee_id=?", (eid,), one=True)["c"]
+            flash(f"{WARN_KINDS[kind]} recorded for {e['name']} (warning no. {n}). Print the letter from the list.", "ok")
+            if request.form.get("print"):
+                return redirect(url_for("warning_letter", wid=wid))
+        return redirect(url_for("employee_view", eid=eid) + "#warns" if request.form.get("back") == "profile"
+                        else url_for("warnings_page"))
+    status = request.args.get("status", "all")
+    sql = """SELECT w.*, e.name, e.emp_code, e.designation, d.name dept,
+                    (SELECT COUNT(*) FROM warnings w2 WHERE w2.employee_id=w.employee_id) total
+             FROM warnings w JOIN employees e ON e.id=w.employee_id LEFT JOIN departments d ON d.id=e.department_id"""
+    args = []
+    if status in ("open", "closed"):
+        sql += " WHERE w.status=?"
+        args.append(status)
+    rows = q(sql + " ORDER BY w.issued_on DESC, w.id DESC LIMIT 1000", args)
+    allw = q("SELECT kind, status, issued_on FROM warnings")
+    yr = str(date.today().year)
+    kp = {"open": sum(1 for r in allw if r["status"] == "open"), "year": sum(1 for r in allw if r["issued_on"][:4] == yr),
+          "final": sum(1 for r in allw if r["kind"] == "final"),
+          "show": sum(1 for r in allw if r["kind"] == "show_cause" and r["status"] == "open")}
+    emps = q("SELECT id, name, emp_code FROM employees WHERE status='active' ORDER BY name")
+    return render_template("warnings.html", rows=rows, kp=kp, status=status, emps=emps, kinds=WARN_KINDS,
+                           pre=request.args.get("emp", type=int))
+
+
+@app.post("/hr/warnings/<int:wid>")
+@perm_required("employees.manage")
+def warning_update(wid):
+    w = q("SELECT * FROM warnings WHERE id=?", (wid,), one=True) or abort(404)
+    act = request.form.get("act")
+    if act == "delete":
+        x("DELETE FROM warnings WHERE id=?", (wid,))
+        flash("Warning deleted.", "ok")
+    elif act == "close":
+        x("UPDATE warnings SET status='closed', response=? WHERE id=?",
+          (request.form.get("response", "").strip() or w["response"], wid))
+        flash("Warning closed.", "ok")
+    elif act == "reopen":
+        x("UPDATE warnings SET status='open' WHERE id=?", (wid,))
+        flash("Warning reopened.", "ok")
+    return redirect(request.form.get("next") or url_for("warnings_page"))
+
+
+# ---------- HR letters
+LETTER_KINDS = {"offer": ("📨", "Offer letter", "Job offer with salary, before joining"),
+                "appointment": ("📝", "Appointment letter", "Terms & conditions of employment"),
+                "experience": ("🏅", "Experience letter", "Service certificate for a person who worked here"),
+                "salary": ("💵", "Salary certificate", "For bank, loan, visa or rent"),
+                "relieving": ("👋", "Relieving letter", "Confirms the person has been relieved of duties"),
+                "employment": ("🪪", "Employment certificate", "Confirms the person currently works here")}
+SALARY_LETTERS = {"offer", "appointment", "salary"}
+
+
+@app.route("/hr/letters")
+@perm_required("employees.manage")
+def letters():
+    emps = q("""SELECT e.id, e.name, e.emp_code, e.designation, e.status, d.name dept FROM employees e
+                LEFT JOIN departments d ON d.id=e.department_id ORDER BY e.status, e.name""")
+    return render_template("letters.html", emps=emps, kinds=LETTER_KINDS, pre=request.args.get("emp", type=int),
+                           salary_kinds=SALARY_LETTERS)
+
+
+def _letter_ref(kind, eid, on):
+    return f"{(re.sub(r'[^A-Za-z]', '', get_settings().get('company_name') or '') or 'HR')[:3].upper()}/HR/{kind[:3].upper()}/{on.year}/{eid:04d}"
+
+
+@app.route("/hr/letters/<int:eid>/<kind>")
+@perm_required("employees.manage")
+def letter(eid, kind):
+    if kind not in LETTER_KINDS:
+        abort(404)
+    if kind in SALARY_LETTERS and not can("payroll.view"):
+        abort(403)
+    e = get_emp(eid)
+    on = parse_date(request.args.get("date")) or date.today()
+    sett = q("SELECT * FROM settlements WHERE employee_id=? ORDER BY id DESC LIMIT 1", (eid,), one=True)
+    exit_d = parse_date(request.args.get("exit")) or (parse_date(sett["exit_date"]) if sett else None)
+    lts = q("SELECT * FROM leave_types WHERE days_per_year>0 ORDER BY paid DESC, name")
+    s = get_settings()
+    off = ", ".join(WEEKDAYS[i] for i in sorted(weekly_off())) or "None"
+    audit("Printed HR letter", f"{LETTER_KINDS[kind][1]} · {e['name']}")
+    return render_template("letter.html", e=e, kind=kind, kinds=LETTER_KINDS, on=on, ref=_letter_ref(kind, eid, on),
+                           exit_d=exit_d, lts=lts, off=off, s=s, salary_kinds=SALARY_LETTERS,
+                           gross=(e["basic_salary"] or 0) + (e["allowances"] or 0), w=None)
+
+
+@app.route("/hr/warnings/<int:wid>/letter")
+@perm_required("employees.view")
+def warning_letter(wid):
+    w = q("SELECT * FROM warnings WHERE id=?", (wid,), one=True) or abort(404)
+    e = get_emp(w["employee_id"])
+    on = parse_date(w["issued_on"]) or date.today()
+    n = q("SELECT COUNT(*) c FROM warnings WHERE employee_id=? AND (issued_on<? OR (issued_on=? AND id<=?))",
+          (e["id"], w["issued_on"], w["issued_on"], wid), one=True)["c"]
+    return render_template("letter.html", e=e, kind="warning", kinds=LETTER_KINDS, on=on,
+                           ref=_letter_ref("warning", e["id"], on) + f"/{n}", exit_d=None, lts=[], off="",
+                           s=get_settings(), salary_kinds=SALARY_LETTERS, gross=0, w=w, wkind=WARN_KINDS[w["kind"]], wno=n)
 
 
 init_db()

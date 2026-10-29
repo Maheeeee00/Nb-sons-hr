@@ -1,0 +1,15 @@
+<form method="post" action="{{ url_for('warnings_page') }}" style="margin-top:12px">{{ csrf() }}
+  <div class="form-grid">
+    {% if e is defined and e %}<input type="hidden" name="employee_id" value="{{ e.id }}"><input type="hidden" name="back" value="profile">
+    {% else %}<div><label>Employee *</label><select name="employee_id" required><option value="">— choose —</option>
+      {% for x in emps %}<option value="{{ x.id }}" {{ 'selected' if pre == x.id }}>{{ x.name }} ({{ x.emp_code }})</option>{% endfor %}</select></div>{% endif %}
+    <div><label>Type</label><select name="kind" onchange="this.form.querySelector('.w-reply').hidden=this.value!='show_cause'">{% for k, v in (kinds if kinds is defined else WARN_KINDS).items() %}<option value="{{ k }}" {{ 'selected' if k == 'written' }}>{{ v }}</option>{% endfor %}</select></div>
+    <div><label>Date</label><input type="date" name="issued_on" value="{{ today.isoformat() }}"></div>
+    <div><label>Subject *</label><input name="subject" required list="wsubj" placeholder="e.g. Late coming"></div>
+    <div class="w-reply" hidden><label>Reply required by</label><input type="date" name="reply_by"></div>
+  </div>
+  <datalist id="wsubj">{% for t in ['Late coming', 'Absence without leave', 'Misconduct', 'Poor performance', 'Negligence of duty', 'Insubordination', 'Violation of company policy', 'Misuse of company property'] %}<option value="{{ t }}">{% endfor %}</datalist>
+  <div style="margin-top:10px"><label>Details – what happened</label><textarea name="details" rows="3" placeholder="e.g. You came late 6 times in October 2026 without any valid reason."></textarea></div>
+  <div style="margin-top:10px"><label>Action required / expected improvement</label><input name="action" placeholder="e.g. Report on time from tomorrow"></div>
+  <div class="btns" style="margin-top:12px"><button class="btn primary" name="print" value="1">💾 Save & print letter</button><button class="btn">Save only</button></div>
+</form>

@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en"><head>{% include "_doc_head.html" %}
+<title>{{ wkind if kind == 'warning' else kinds[kind][1] }} – {{ e.name }}</title></head>
+<body class="dc-page">
+{% set fem = (e.gender or '')|lower in ('female', 'f') %}
+{% set he, his, him, ttl = ('she', 'her', 'her', 'Ms.') if fem else ('he', 'his', 'him', 'Mr.') %}
+{% set first = e.name.split()[0] %}
+{% set co = s.company_name or 'the Company' %}
+{% set cur = s.currency %}
+<div class="dc-tools">
+  <button class="btn primary" onclick="window.print()">🖨️ Print / Save as PDF</button>
+  {% if kind == 'warning' %}<a class="btn" href="{{ url_for('warnings_page') }}">&larr; Warnings</a>
+  {% else %}<a class="btn" href="{{ url_for('letters', emp=e.id) }}">&larr; HR letters</a>
+  <select class="btn" style="width:auto;min-width:0" onchange="location.href=this.value">{% for k, v in kinds.items() %}{% if k not in salary_kinds or can('payroll.view') %}<option value="{{ url_for('letter', eid=e.id, kind=k) }}" {{ 'selected' if k == kind }}>{{ v[0] }} {{ v[1] }}</option>{% endif %}{% endfor %}</select>{% endif %}
+  <a class="btn" href="{{ url_for('employee_view', eid=e.id) }}">👤 Profile</a>
+  <span class="dc-edit">✏️ Click anywhere in the letter to change the wording before printing</span>
+</div>
+<div class="dc">
+  <div class="dc-band">
+    <div class="dc-co"><img src="{{ url_for('static', filename='logo.png') }}" alt=""><div><h1>{{ co }}</h1><small>{{ s.company_address }}</small></div></div>
+    <div class="dc-title"><b>{{ 'Human Resources' }}</b><span>{{ wkind if kind == 'warning' else kinds[kind][1] }}</span></div>
+  </div>
+  <div class="dc-body" contenteditable="true" spellcheck="false">
+    <div class="dc-meta"><span>Ref: {{ ref }}</span><span>Date: {{ on.strftime('%d %B %Y') }}</span></div>
+
+{% if kind == 'offer' %}
+    <p><b>{{ ttl }} {{ e.name }}</b>{% if e.father_name %}<br>{{ 'D/o' if fem else 'S/o' }} {{ e.father_name }}{% endif %}{% if e.address %}<br>{{ e.address }}{% endif %}{% if e.cnic %}<br>CNIC: {{ e.cnic }}{% endif %}</p>
+    <h2>OFFER OF EMPLOYMENT</h2>
+    <p>Dear {{ first }},</p>
+    <p>We are pleased to offer you the position of <b>{{ e.designation or '__________' }}</b>{% if e.dept %} in the <b>{{ e.dept }}</b> department{% endif %} at {{ co }}. We were impressed with your skills and believe you will be a valuable addition to our team.</p>
+    <table class="dc-t">
+      <tr><th>Position</th><td>{{ e.designation or '—' }}</td></tr>
+      <tr><th>Department</th><td>{{ e.dept or '—' }}</td></tr>
+      <tr><th>Employment type</th><td>{{ e.employment_type or 'Permanent' }}</td></tr>
+      <tr><th>Joining date</th><td>{{ e.join_date|nicedate or '__________' }}</td></tr>
+      <tr><th>Basic salary</th><td>{{ cur }} {{ (e.basic_salary or 0)|money }} per month</td></tr>
+      <tr><th>Allowances</th><td>{{ cur }} {{ (e.allowances or 0)|money }} per month</td></tr>
+      <tr><th>Gross salary</th><td><b>{{ cur }} {{ gross|money }} per month</b></td></tr>
+      <tr><th>Office timings</th><td>{{ s.office_start }} to {{ s.office_end }} · Weekly off: {{ off }}</td></tr>
+    </table>
+    <p>This offer is subject to verification of your documents (CNIC, educational certificates and previous experience) and satisfactory references. A formal appointment letter with full terms and conditions will be issued on joining.</p>
+    <p>Please sign and return a copy of this letter as your acceptance within <b>7 days</b>. We look forward to welcoming you to {{ co }}.</p>
+    <p>Yours sincerely,</p>
+    <div class="dc-sign"><div>Authorized signatory<small>Human Resources, {{ co }}</small></div><div>Accepted by<small>{{ e.name }} · Date: ________</small></div></div>
+
+{% elif kind == 'appointment' %}
+    <p><b>{{ ttl }} {{ e.name }}</b>{% if e.father_name %}<br>{{ 'D/o' if fem else 'S/o' }} {{ e.father_name }}{% endif %}{% if e.cnic %}<br>CNIC: {{ e.cnic }}{% endif %}<br>Employee code: {{ e.emp_code }}</p>
+    <h2>APPOINTMENT LETTER</h2>
+    <p>Dear {{ first }},</p>
+    <p>With reference to your application and subsequent interview, we are pleased to appoint you as <b>{{ e.designation or '__________' }}</b>{% if e.dept %} in the <b>{{ e.dept }}</b> department{% endif %} with effect from <b>{{ e.join_date|nicedate or '__________' }}</b> on the following terms and conditions:</p>
+    <ol>
+      <li><b>Salary:</b> Your gross monthly salary will be {{ cur }} {{ gross|money }} (basic {{ (e.basic_salary or 0)|money }} + allowances {{ (e.allowances or 0)|money }}), paid monthly after applicable deductions.</li>
+      <li><b>Probation:</b> You will be on probation for three (3) months. On satisfactory performance your services will be confirmed in writing.</li>
+      <li><b>Working hours:</b> Office timings are {{ s.office_start }} to {{ s.office_end }}. Weekly off: {{ off }}. Attendance is recorded daily; late arrivals and absences are dealt with as per company policy.</li>
+      <li><b>Leave:</b> You are entitled to {% for l in lts %}{{ l.days_per_year }} days {{ l.name }} leave{{ ', ' if not loop.last else '' }}{% else %}leave as per company policy{% endfor %} per calendar year, plus gazetted public holidays.</li>
+      <li><b>Notice period:</b> After confirmation, either party may end this employment by giving one (1) month's written notice or one month's salary in lieu of notice. During probation the notice period is seven (7) days.</li>
+      <li><b>Confidentiality:</b> You shall keep all company information, documents and client details strictly confidential during and after your employment.</li>
+      <li><b>Company property:</b> All assets issued to you remain company property and must be returned in good condition on leaving.</li>
+      <li><b>Rules:</b> You shall abide by all rules, policies and code of conduct of the company in force from time to time.</li>
+    </ol>
+    <p>Please sign the duplicate copy of this letter as a token of your acceptance of these terms.</p>
+    <p>We welcome you to {{ co }} and wish you a successful career with us.</p>
+    <div class="dc-sign"><div>Authorized signatory<small>Human Resources, {{ co }}</small></div><div>Accepted by<small>{{ e.name }} · Date: ________</small></div></div>
+
+{% elif kind == 'experience' %}
+    <h2>EXPERIENCE CERTIFICATE</h2>
+    <p style="margin-top:22px"><b>TO WHOM IT MAY CONCERN</b></p>
+    <p>This is to certify that <b>{{ ttl }} {{ e.name }}</b>{% if e.father_name %} {{ 'D/o' if fem else 'S/o' }} {{ e.father_name }}{% endif %}{% if e.cnic %}, holding CNIC No. {{ e.cnic }},{% endif %} has worked with {{ co }} as <b>{{ e.designation or '__________' }}</b>{% if e.dept %} in the {{ e.dept }} department{% endif %} from <b>{{ e.join_date|nicedate or '__________' }}</b> to <b>{{ exit_d|nicedate if exit_d else ('date' if e.status == 'active' else '__________') }}</b>.</p>
+    <p>During {{ his }} tenure with us, we found {{ him }} hard-working, honest and dedicated to {{ his }} duties. {{ he|capitalize }} has a good moral character and maintained good relations with colleagues and management.</p>
+    <p>{% if e.status == 'active' and not exit_d %}{{ he|capitalize }} is currently working with us. {% else %}{{ he|capitalize }} has left the company on {{ his }} own accord and has been relieved of all duties. {% endif %}We wish {{ him }} every success in {{ his }} future endeavours.</p>
+    <div class="dc-sign" style="margin-top:70px"><div>Authorized signatory<small>Human Resources, {{ co }}</small></div><div style="visibility:hidden"></div></div>
+
+{% elif kind == 'salary' %}
+    <h2>SALARY CERTIFICATE</h2>
+    <p style="margin-top:22px"><b>TO WHOM IT MAY CONCERN</b></p>
+    <p>This is to certify that <b>{{ ttl }} {{ e.name }}</b>{% if e.father_name %} {{ 'D/o' if fem else 'S/o' }} {{ e.father_name }}{% endif %}{% if e.cnic %}, CNIC No. {{ e.cnic }},{% endif %} is a {{ (e.employment_type or 'permanent')|lower }} employee of {{ co }} working as <b>{{ e.designation or '__________' }}</b>{% if e.dept %} in the {{ e.dept }} department{% endif %} since <b>{{ e.join_date|nicedate or '__________' }}</b>. {{ his|capitalize }} current monthly salary is as follows:</p>
+    <table class="dc-t" style="max-width:460px">
+      <tr><th>Basic salary</th><td class="n">{{ cur }} {{ (e.basic_salary or 0)|money }}</td></tr>
+      <tr><th>Allowances</th><td class="n">{{ cur }} {{ (e.allowances or 0)|money }}</td></tr>
+      <tr class="tot"><td>Gross monthly salary</td><td class="n">{{ cur }} {{ gross|money }}</td></tr>
+    </table>
+    {% if e.bank_account %}<p>Salary is credited to {{ his }} bank account no. <b>{{ e.bank_account }}</b>.</p>{% endif %}
+    <p>This certificate is issued on {{ his }} request for <b>__________</b> purpose, without any liability on the part of the company or its management.</p>
+    <div class="dc-sign" style="margin-top:70px"><div>Authorized signatory<small>Human Resources, {{ co }}</small></div><div style="visibility:hidden"></div></div>
+
+{% elif kind == 'relieving' %}
+    <p><b>{{ ttl }} {{ e.name }}</b><br>Employee code: {{ e.emp_code }}{% if e.cnic %}<br>CNIC: {{ e.cnic }}{% endif %}</p>
+    <h2>RELIEVING LETTER</h2>
+    <p>Dear {{ first }},</p>
+    <p>This is to confirm that your resignation has been accepted and you are relieved from the services of {{ co }} with effect from the close of business on <b>{{ exit_d|nicedate if exit_d else '__________' }}</b>.</p>
+    <p>You worked with us as <b>{{ e.designation or '__________' }}</b>{% if e.dept %} in the {{ e.dept }} department{% endif %} from {{ e.join_date|nicedate or '__________' }}. Your full and final settlement has been processed and you have handed over all company property and charge.</p>
+    <p>We thank you for your contribution and wish you success in your future career.</p>
+    <div class="dc-sign" style="margin-top:70px"><div>Authorized signatory<small>Human Resources, {{ co }}</small></div><div style="visibility:hidden"></div></div>
+
+{% elif kind == 'employment' %}
+    <h2>EMPLOYMENT CERTIFICATE</h2>
+    <p style="margin-top:22px"><b>TO WHOM IT MAY CONCERN</b></p>
+    <p>This is to certify that <b>{{ ttl }} {{ e.name }}</b>{% if e.father_name %} {{ 'D/o' if fem else 'S/o' }} {{ e.father_name }}{% endif %}{% if e.cnic %}, CNIC No. {{ e.cnic }},{% endif %} is working with {{ co }} as <b>{{ e.designation or '__________' }}</b>{% if e.dept %} in the {{ e.dept }} department{% endif %} since <b>{{ e.join_date|nicedate or '__________' }}</b>. {{ his|capitalize }} employee code is {{ e.emp_code }}.</p>
+    <p>This certificate is issued on {{ his }} request without any liability on the part of the company.</p>
+    <div class="dc-sign" style="margin-top:70px"><div>Authorized signatory<small>Human Resources, {{ co }}</small></div><div style="visibility:hidden"></div></div>
+
+{% elif kind == 'warning' %}
+    <p><b>{{ ttl }} {{ e.name }}</b><br>{{ e.designation or '' }}{% if e.dept %}, {{ e.dept }}{% endif %}<br>Employee code: {{ e.emp_code }}</p>
+    <h2>{{ wkind|upper }}{% if w.kind != 'show_cause' %} (No. {{ wno }}){% endif %}</h2>
+    <p><b>Subject: {{ w.subject }}</b></p>
+    <p>Dear {{ first }},</p>
+    {% if w.kind == 'show_cause' %}
+    <p>It has been reported that {{ (w.details or 'you have committed the following act of misconduct').rstrip('.') }}.</p>
+    <p>This conduct is against the rules and code of conduct of {{ co }}. You are hereby directed to <b>show cause in writing</b> why disciplinary action should not be taken against you{% if w.reply_by %} by <b>{{ w.reply_by|nicedate }}</b>{% else %} within three (3) working days of receiving this notice{% endif %}.</p>
+    <p>If no satisfactory reply is received within the given time, it will be presumed that you have no explanation to offer and the management will take action as deemed fit without further notice.</p>
+    {% else %}
+    <p>{{ w.details or 'It has been observed that your conduct / performance has not been up to the standards expected by the company.' }}</p>
+    <p>This behaviour is not acceptable and is against company policy. You are hereby {{ 'given a FINAL warning' if w.kind == 'final' else 'warned' }} to improve immediately.{% if w.action %} You are required to: <b>{{ w.action }}</b>.{% endif %}</p>
+    <p>{% if w.kind == 'final' %}Please note that any repetition will lead to strict disciplinary action, which may include termination of your services without further notice.{% else %}Any repetition in future may lead to stricter disciplinary action as per company rules.{% endif %} A copy of this letter is being placed in your personal file.</p>
+    {% endif %}
+    <div class="dc-sign"><div>Authorized signatory<small>Human Resources, {{ co }}</small></div><div>Received by<small>{{ e.name }} · Date: ________</small></div></div>
+{% endif %}
+  </div>
+  <div class="dc-foot"><span>{{ co }}{% if s.company_address %} · {{ s.company_address }}{% endif %}</span><span>{{ ref }}</span></div>
+</div>
+</body></html>

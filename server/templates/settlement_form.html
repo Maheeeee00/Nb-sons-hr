@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf, badge %}
+{% block title %}Final settlement · {{ e.name }}{% endblock %}
+{% block heading %}Final settlement · {{ e.name }}{% endblock %}
+{% block actions %}
+  {% if s %}<a class="btn" href="{{ url_for('settlement_print', sid=s.id) }}">🖨️ Settlement sheet</a>{% endif %}
+  <a class="btn" href="{{ url_for('settlements') }}">&larr; All settlements</a>
+{% endblock %}
+{% block content %}
+{% macro val(k, d) -%}{% set v = (s[k] if use_saved and s and s[k] is not none else d) or 0 %}{{ v|int if v == v|int else v|round(2) }}{%- endmacro %}
+<div class="st-head card">
+  <span class="rp-avatar big">{{ (e.name.split()|map('first')|join)[:2]|upper }}</span>
+  <div class="grow"><h2 style="margin:0">{{ e.name }} {{ badge(e.status) }}</h2>
+    <small class="muted">{{ e.emp_code }} · {{ e.designation or '—' }} · {{ e.dept or '—' }} · joined {{ e.join_date|nicedate or '—' }} · gross {{ settings.currency }} {{ c.gross|money }}/month</small></div>
+  {% if s %}<span class="badge b-{{ s.status }}">{{ 'Final' if s.status == 'final' else 'Draft' }}</span>{% endif %}
+</div>
+
+{% if s and s.status == 'final' %}
+<div class="flash ok">✅ This settlement was finalized on {{ s.finalized_on|nicedate }}. <a href="{{ url_for('settlement_print', sid=s.id) }}">Open the settlement sheet</a>.
+  {% if can('payroll.manage') %}<form method="post" action="{{ url_for('settlement_delete', sid=s.id) }}" style="display:inline" onsubmit="return confirm('Reopen this settlement to change it?')">{{ csrf() }}<input type="hidden" name="reopen" value="1"><button class="btn sm">Reopen</button></form>{% endif %}</div>
+{% else %}
+<form method="get" class="card inline st-date">
+  <div><label>Last working day</label><input type="date" name="exit_date" value="{{ exit_d.isoformat() }}" onchange="this.form.submit()"></div>
+  <span class="muted">Changing the date re-calculates everything below.</span>
+</form>
+
+<form method="post" id="stf">{{ csrf() }}<input type="hidden" name="exit_date" value="{{ exit_d.isoformat() }}">
+<div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h2>🚪 Exit details</h2></div>
+    <div class="form-grid">
+      <div><label>Exit type</label><select name="exit_type">{% for t in exit_types %}<option {{ 'selected' if s and s.exit_type == t }}>{{ t }}</option>{% endfor %}</select></div>
+      <div><label>Reason</label><input name="reason" value="{{ s.reason if s else '' }}" placeholder="e.g. Better opportunity"></div>
+    </div>
+
+    <h3 class="st-h">💼 Salary for {{ exit_d.strftime('%B %Y') }} (up to last day)</h3>
+    {% if c.payroll %}<div class="note">Salary for {{ exit_d.strftime('%B %Y') }} is already in payroll (net {{ c.payroll.net|money }}, {{ c.payroll.status }}), so it is set to 0 here.</div>{% endif %}
+    <p class="muted st-calc">{{ c.worked_workdays }} working day(s) from {{ c.start|nicedate }} to {{ exit_d|nicedate }} − {{ c.absent|num }} absent − {{ c.unpaid|num }} unpaid leave = <b>{{ c.salary_days|num }} day(s)</b> × {{ c.per_day|round(2) }} per day (gross ÷ {{ c.workdays_month }} working days)</p>
+    <div class="form-grid">
+      <div><label>Payable days</label><input type="number" step="any" name="salary_days" value="{{ val('salary_days', c.salary_days) }}" data-rate="{{ c.per_day }}" data-target="salary_amount" class="st-days"></div>
+      <div><label>Salary amount</label><input type="number" step="any" name="salary_amount" class="st-n st-add" value="{{ val('salary_amount', c.salary_amount) }}"></div>
+    </div>
+
+    <h3 class="st-h">🌴 Unused leave payment</h3>
+    <p class="muted st-calc">{% for b in c.enc_bal %}{{ b.name }} {{ b.payable_days|num }} day(s){{ ', ' if not loop.last }}{% else %}No unused encashable leave.{% endfor %} × {{ c.rate|round(2) }} per day</p>
+    <div class="form-grid">
+      <div><label>Leave days to pay</label><input type="number" step="any" name="encash_days" value="{{ val('encash_days', c.encash_days) }}" data-rate="{{ c.rate }}" data-target="encash_amount" class="st-days"></div>
+      <div><label>Leave payment</label><input type="number" step="any" name="encash_amount" class="st-n st-add" value="{{ val('encash_amount', c.encash_amount) }}"></div>
+    </div>
+
+    <h3 class="st-h">➕ Other payments</h3>
+    <div class="form-grid">
+      <div><label>Amount <small class="muted">(bonus, gratuity, overtime…)</small></label><input type="number" step="any" name="other_add" class="st-n st-add" value="{{ val('other_add', 0) }}"></div>
+      <div><label>Details</label><input name="other_add_note" value="{{ s.other_add_note if s else '' }}"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>➖ Recoveries</h2></div>
+    <h3 class="st-h">🏦 Loan recovery</h3>
+    {% if c.loans %}<ul class="plist">{% for l in c.loans %}<li><div class="grow"><b>Loan of {{ l.amount|money }}</b><small>given {{ l.issued_on|nicedate }}{% if l.reason %} · {{ l.reason }}{% endif %}</small></div><b>{{ l.balance|money }}</b></li>{% endfor %}</ul>
+    {% else %}<p class="muted">No loan balance.</p>{% endif %}
+    <div class="form-grid"><div><label>Recover from settlement</label><input type="number" step="any" min="0" name="loan_recovery" class="st-n st-ded" value="{{ val('loan_recovery', c.loan_recovery) }}"></div></div>
+    {% if c.loans %}<p class="muted" style="font-size:12.5px">If you recover less than the balance, the rest is written off when you finalize.</p>{% endif %}
+
+    <h3 class="st-h">💻 Asset return checklist</h3>
+    {% if c.assets %}
+    <div class="st-assets">{% for a in c.assets %}{% set sa = saved_assets.get(a.sid) %}
+      <div class="st-asset">
+        <label class="st-chk"><input type="checkbox" class="tick" name="ar_{{ a.sid }}" {{ 'checked' if (sa.returned if sa else false) }}> <b>{{ a.asset_code }} · {{ a.name }}</b></label>
+        <small class="muted">{{ a.category or '' }} · since {{ a.assigned_on|nicedate }}{% if a.cost %} · cost {{ a.cost|money }}{% endif %}</small>
+        <div class="st-ad"><span>Deduct if not returned</span><input type="number" step="any" min="0" name="ad_{{ a.sid }}" class="st-n st-ded st-adv" value="{{ sa.deduction if sa else 0 }}"></div>
+      </div>{% endfor %}</div>
+    <p class="muted" style="font-size:12.5px">Tick each item the employee has handed back. Ticked items are received back into store when you finalize.</p>
+    {% else %}<p class="muted">✅ No company assets with this employee.</p>{% endif %}
+
+    <h3 class="st-h">➖ Other deductions</h3>
+    <div class="form-grid">
+      <div><label>Amount <small class="muted">(notice period, damages…)</small></label><input type="number" step="any" name="other_ded" class="st-n st-ded" value="{{ val('other_ded', 0) }}"></div>
+      <div><label>Details</label><input name="other_ded_note" value="{{ s.other_ded_note if s else '' }}"></div>
+    </div>
+    <div style="margin-top:10px"><label>Remarks</label><textarea name="remarks" rows="2">{{ s.remarks if s else '' }}</textarea></div>
+  </div>
+</div>
+
+<div class="card st-total">
+  <div class="st-tl"><span>Payments <b id="t-add">0</b></span><span>Recoveries <b id="t-ded">0</b></span></div>
+  <div class="st-net"><small>Net payable to {{ e.name.split()[0] }} ({{ settings.currency }})</small><b id="t-net">0</b></div>
+  {% if can('payroll.manage') %}
+  <div class="btns"><button class="btn" name="act" value="draft">💾 Save draft</button>
+    <button class="btn primary" name="act" value="final" onclick="return confirm('Finalize the settlement for {{ e.name }}?\n\n• Employee becomes Inactive and their login is disabled\n• Loan recovery is recorded\n• Ticked assets are received back\n\nDo this when the payment is made.')">✅ Finalize settlement</button></div>
+  {% endif %}
+</div>
+</form>
+{% endif %}
+<script>
+(function(){var f=document.getElementById('stf');if(!f)return;
+var n=function(v){return Math.round(v).toLocaleString('en-US')};
+function tot(){var a=0,d=0;f.querySelectorAll('.st-add').forEach(function(i){a+=+i.value||0});
+ f.querySelectorAll('.st-ded').forEach(function(i){if(i.classList.contains('st-adv')){var c=i.closest('.st-asset').querySelector('input[type=checkbox]');if(c&&c.checked){i.closest('.st-asset').classList.add('done');return}i.closest('.st-asset').classList.remove('done')}d+=+i.value||0});
+ document.getElementById('t-add').textContent=n(a);document.getElementById('t-ded').textContent=n(d);var t=document.getElementById('t-net');t.textContent=n(a-d);t.className=(a-d)<0?'neg':''}
+f.querySelectorAll('.st-days').forEach(function(i){i.addEventListener('input',function(){f.querySelector('[name='+i.dataset.target+']').value=Math.round((+i.value||0)*(+i.dataset.rate||0));tot()})});
+f.addEventListener('input',tot);f.addEventListener('change',tot);tot();})();
+</script>
+{% endblock %}

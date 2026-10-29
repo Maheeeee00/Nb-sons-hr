@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% block title %}Warnings & Discipline{% endblock %}
+{% block heading %}Warnings & discipline{% endblock %}
+{% block actions %}{% if can('employees.manage') %}<a class="btn primary" href="#new" onclick="document.getElementById('wnew').open=true">⚠️ Issue warning</a>{% endif %}{% endblock %}
+{% block content %}
+<div class="kpis">
+  <div class="kpi"><span class="ki bg-c">📂</span><div><div class="kv2">{{ kp.open }}</div><div class="kl">Open cases</div></div></div>
+  <div class="kpi"><span class="ki bg-b">📅</span><div><div class="kv2">{{ kp.year }}</div><div class="kl">Issued in {{ today.year }}</div></div></div>
+  <div class="kpi"><span class="ki bg-d">🛑</span><div><div class="kv2">{{ kp.final }}</div><div class="kl">Final warnings</div></div></div>
+  <div class="kpi"><span class="ki bg-a">❓</span><div><div class="kv2">{{ kp.show }}</div><div class="kl">Show-cause awaiting reply</div></div></div>
+</div>
+{% if can('employees.manage') %}
+<details class="card fold" id="wnew" {{ 'open' if pre or not rows }}>
+  <summary id="new"><h2 style="display:inline">⚠️ Issue a warning / show-cause notice</h2></summary>
+  {% include "_warn_form.html" %}
+</details>
+{% endif %}
+<div class="card">
+  <div class="tabs">{% for v, l in [('all', 'All'), ('open', 'Open'), ('closed', 'Closed')] %}<a href="{{ url_for('warnings_page', status=v) }}" class="{{ 'on' if status == v }}">{{ l }}</a>{% endfor %}</div>
+  {% if rows %}{% set warns = rows %}{% include "_warn_list.html" %}
+  {% else %}<p class="muted">No warnings recorded. 👍</p>{% endif %}
+</div>
+{% endblock %}
