@@ -12,7 +12,8 @@
       <div><label>Allowances</label><input type="number" step="any" name="allowances" value="{{ p.allowances|num }}"></div>
       <div><label>Overtime</label><input type="number" step="any" name="overtime" value="{{ p.overtime|num }}"></div>
       <div><label>Bonus</label><input type="number" step="any" name="bonus" value="{{ p.bonus|num }}"></div>
-      <div><label>Absent / unpaid deduction</label><input type="number" step="any" name="absent_deduction" value="{{ p.absent_deduction|num }}"></div>
+      <div><label>Absent / unpaid deduction</label><input type="number" step="any" name="absent_deduction" value="{{ p.absent_deduction|num }}">
+        {% if p.suggested_deduction %}<small class="muted">Suggested: {{ p.suggested_deduction|money }} for {{ p.deduction_days|num }} day(s){% if p.ded_status == 'pending' %} · <b style="color:#b45309">waiting for your decision</b>{% endif %}</small>{% endif %}</div>
       <div><label>Income tax</label><input type="number" step="any" name="tax" value="{{ p.tax|num }}"></div>
       <div><label>Other deductions (advance, fine…)</label><input type="number" step="any" name="other_deductions" value="{{ p.other_deductions|num }}"></div>
       <div class="full"><label>Loan installment (automatic)</label>

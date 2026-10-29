@@ -1,5 +1,6 @@
 {% macro asset_tabs(active) %}
 <nav class="subnav">
+  <a href="{{ url_for('asset_management') }}" class="{{ 'on' if active == 'manage' }}"><span>👥</span> Asset Management</a>
   <a href="{{ url_for('assets') }}" class="{{ 'on' if active == 'list' }}"><span>💻</span> All Assets</a>
   {% if can('assets.manage') %}
   <a href="{{ url_for('asset_new') }}" class="{{ 'on' if active == 'add' }}"><span>➕</span> Add Asset</a>

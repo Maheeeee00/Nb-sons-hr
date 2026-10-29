@@ -14,16 +14,35 @@
   <div class="card-head">
     <div>
       <h2>{{ 'Generate salaries' if not rows else 'Recalculate salaries' }}</h2>
-      <p class="muted" style="margin:4px 0 0;font-size:13px">Salary = Basic + Allowances + Overtime + Bonus − (per-day pay × absent/unpaid days) − Tax − Other deductions − Loan installment.
+      <p class="muted" style="margin:4px 0 0;font-size:13px">Salary = Basic + Allowances + Overtime + Bonus − Tax − Other deductions − Loan installment. Absent / late / unpaid-leave deductions are <b>only suggested</b> – you get a notification and decide each one yourself.
         Recalculating updates attendance figures but keeps your overtime, bonus, tax and other deductions. Paid salaries are never changed.</p>
     </div>
     <div class="btns">
       <form method="post" action="{{ url_for('payroll_generate') }}">{{ csrf() }}<input type="hidden" name="month" value="{{ month }}">
         <button class="btn primary">{{ 'Generate payroll' if not rows else 'Recalculate' }}{% if missing and rows %} (+{{ missing }} new){% endif %}</button></form>
-      {% if rows %}<form method="post" action="{{ url_for('payroll_pay_all') }}" onsubmit="return confirm('Mark ALL salaries for this month as paid?')">{{ csrf() }}<input type="hidden" name="month" value="{{ month }}"><button class="btn ok">Mark all paid</button></form>{% endif %}
+      {% if rows %}<form method="post" action="{{ url_for('payroll_pay_all') }}" onsubmit="return confirm('Mark ALL salaries for this month as paid?{% if pend %}\n\n⚠ {{ pend|length }} deduction(s) are still waiting for your review – they will NOT be cut.{% endif %}')">{{ csrf() }}<input type="hidden" name="month" value="{{ month }}"><button class="btn ok">Mark all paid</button></form>{% endif %}
     </div>
   </div>
 </div>
+
+{% if pend %}
+<div class="card ded-review" id="ded">
+  <div class="card-head"><h2>🔔 Deductions waiting for your review ({{ pend|length }})</h2>
+    <form method="post" action="{{ url_for('payroll_deduct_all') }}" onsubmit="return confirm('Deduct all {{ pend|length }} suggested amounts?')">{{ csrf() }}<input type="hidden" name="month" value="{{ month }}">
+      <button class="btn sm">Deduct all suggested</button></form></div>
+  <p class="muted" style="margin-top:0">Nothing is cut automatically. Check each person's absences, lates and unpaid leave, then decide – you can change the amount.</p>
+  <div class="ded-list">{% for p in pend %}
+    <div class="ded-item" style="--i: {{ loop.index0 }}">
+      <div class="grow"><b>{{ p.name }}</b> <small class="muted">{{ p.emp_code }}</small>
+        <small>{{ p.absent_days|num }} absent{% if p.unpaid_leave_days %} · {{ p.unpaid_leave_days|num }} unpaid leave{% endif %}{% if p.late_days %} · {{ p.late_days }} late{% endif %} → {{ p.deduction_days|num }} day(s) of {{ p.working_days }} ·
+          <a href="{{ url_for('attendance_report', month=month, emp=p.employee_id) }}">see attendance</a></small></div>
+      <form method="post" action="{{ url_for('payroll_deduction', pid=p.id) }}" class="ded-f">{{ csrf() }}
+        <span>{{ settings.currency }}</span><input type="number" step="any" min="0" name="amount" value="{{ p.suggested_deduction|round|int }}">
+        <button class="btn sm danger" name="act" value="apply">✂ Deduct</button>
+        <button class="btn sm" name="act" value="waive" formnovalidate>Don't deduct</button></form>
+    </div>{% endfor %}</div>
+</div>
+{% endif %}
 
 {% if rows %}
 <div class="stats">
@@ -43,7 +62,9 @@
       <td class="num">{{ (p.basic + p.allowances)|money }}</td>
       <td class="num">{{ (p.overtime + p.bonus)|money }}</td>
       <td class="num" title="Absent {{ p.absent_days|num }}, unpaid leave {{ p.unpaid_leave_days|num }}, late {{ p.late_days }}">{{ p.deduction_days|num }} <small>/ {{ p.working_days }}</small></td>
-      <td class="num">{{ p.absent_deduction|money }}</td>
+      <td class="num">{% if p.ded_status == 'pending' and p.status != 'paid' %}<a class="ded-pill" href="#ded" title="Suggested – not deducted yet">🔔 {{ p.suggested_deduction|money }}?</a>
+        {% else %}{{ p.absent_deduction|money }}{% if p.ded_status == 'waived' and p.suggested_deduction %}<br><small class="muted">waived</small>{% endif %}
+        {% if p.ded_status in ('applied', 'waived') and p.status != 'paid' and can('payroll.manage') %}<form method="post" action="{{ url_for('payroll_deduction', pid=p.id) }}" style="display:inline">{{ csrf() }}<button class="linkbtn" name="act" value="undo" title="Review again">↺</button></form>{% endif %}{% endif %}</td>
       <td class="num">{{ (p.tax + p.other_deductions)|money }}</td>
       <td class="num">{% if p.loan_deduction %}<a href="{{ url_for('loans') }}">{{ p.loan_deduction|money }}</a>{% else %}—{% endif %}</td>
       <td class="num"><b>{{ p.net|money }}</b></td>

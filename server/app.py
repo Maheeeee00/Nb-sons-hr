@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -211,6 +211,9 @@ def init_db():
     pcols = {r[1] for r in con.execute("PRAGMA table_info(payroll)")}
     if "loan_deduction" not in pcols:
         con.execute("ALTER TABLE payroll ADD COLUMN loan_deduction REAL DEFAULT 0")
+    if "suggested_deduction" not in pcols:          # deductions are suggested, HR applies them by hand
+        con.execute("ALTER TABLE payroll ADD COLUMN suggested_deduction REAL DEFAULT 0")
+        con.execute("ALTER TABLE payroll ADD COLUMN ded_status TEXT")
     if "manager_id" not in cols:
         con.execute("ALTER TABLE employees ADD COLUMN manager_id INTEGER")
     usql = con.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").fetchone()[0]
@@ -653,7 +656,8 @@ AUDIT_NAMES = {
     "attendance": "Marked attendance", "attendance_mark": "Quick-marked attendance", "attendance_manage": "Edited attendance",
     "attendance_import_confirm": "Imported attendance", "leaves": "Recorded leave", "leave_decide": "Leave decision", "leave_edit": "Edited leave",
     "payroll_generate": "Generated payroll", "payroll_edit": "Edited salary", "payroll_status": "Changed salary status",
-    "payroll_pay_all": "Marked all salaries paid", "payroll_delete": "Deleted salary row",
+    "payroll_pay_all": "Marked all salaries paid", "payroll_deduction": "Salary deduction decision",
+    "payroll_deduct_all": "Applied all salary deductions", "payroll_delete": "Deleted salary row",
     "loans": "Gave a loan", "loan_view": "Changed a loan", "settings_page": "Changed settings", "recycle_bin": "Recycle bin",
     "users": "Changed users", "user_perms_page": "Changed a user's permissions", "roles_page": "Changed roles & permissions", "change_password": "Changed own password",
     "asset_new": "Added asset", "asset_edit": "Edited asset", "asset_assign": "Assigned asset",
@@ -661,7 +665,7 @@ AUDIT_NAMES = {
     "increments": "Gave increment / promotion", "increment_undo": "Undid salary change", "settlement_edit": "Final settlement",
     "settlement_delete": "Deleted / reopened settlement", "doc_upload": "Uploaded employee document",
     "doc_delete": "Deleted employee document", "doc_edit": "Edited employee document", "warnings_page": "Issued warning",
-    "warning_update": "Changed warning", "asset_delete": "Deleted asset", "assets_assign": "Assigned asset", "assets_import": "Imported assets (page)",
+    "warning_update": "Changed warning", "asset_management": "Asset management", "asset_delete": "Deleted asset", "assets_assign": "Assigned asset", "assets_import": "Imported assets (page)",
 }
 _SKIP_FIELDS = {"csrf", "password", "new", "confirm", "current", "token", "changed"}
 
@@ -2636,7 +2640,8 @@ def payroll():
     loan_out = q("""SELECT COUNT(*) c, COALESCE(SUM(bal),0) s FROM (SELECT l.amount - COALESCE((SELECT SUM(amount)
                     FROM loan_payments p WHERE p.loan_id=l.id),0) bal FROM loans l WHERE l.status<>'closed') WHERE bal>0.5""",
                  one=True)
-    return render_template("payroll.html", rows=rows, month=month, tot=tot, missing=missing, loan_out=loan_out,
+    pend = [r for r in rows if r["ded_status"] == "pending" and r["status"] != "paid"]
+    return render_template("payroll.html", rows=rows, month=month, tot=tot, missing=missing, loan_out=loan_out, pend=pend,
                            prev=shift_month(y, m, -1), next=shift_month(y, m, 1))
 
 
@@ -2648,7 +2653,7 @@ def payroll_generate():
     last = month_dates(y, m)[-1].isoformat()
     emps = q("""SELECT * FROM employees WHERE status='active'
                 AND (join_date IS NULL OR join_date='' OR join_date<=?)""", (last,))
-    made = updated = skipped = 0
+    made = updated = skipped = review = 0
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     for e in emps:
         c = compute_payroll(e, y, m)
@@ -2657,7 +2662,16 @@ def payroll_generate():
             skipped += 1
             continue
         extra = {k: (ex[k] if ex else 0) or 0 for k in ("overtime", "bonus", "tax", "other_deductions")}
-        row = {**c, **extra}
+        sug = c["absent_deduction"]
+        exk = ex.keys() if ex else []
+        if ex and "ded_status" in exk and ex["ded_status"] in ("applied", "waived") \
+                and abs((ex["suggested_deduction"] or 0) - sug) < 1:
+            c["absent_deduction"], dst = ex["absent_deduction"] or 0, ex["ded_status"]   # HR already decided
+        else:
+            c["absent_deduction"], dst = 0, ("pending" if sug > 0 else None)          # HR reviews and deducts
+        if dst == "pending":
+            review += 1
+        row = {**c, **extra, "suggested_deduction": sug, "ded_status": dst}
         if ex:                                   # recalculating: forget this salary's previous loan cuts
             x("DELETE FROM loan_payments WHERE payroll_id=?", (ex["id"],))
         row["loan_deduction"] = 0
@@ -2687,6 +2701,51 @@ def payroll_generate():
                  VALUES(?,?,?,?,?,'salary','Deducted from salary',?)""",
               (lid_, pid_, month, ded, date.today().isoformat(), g.user["username"]))
     flash(f"Payroll for {monthname(month)}: {made} created, {updated} recalculated, {skipped} already paid (unchanged).", "ok")
+    if review:
+        flash(f"🔔 {review} salary(ies) have absent / late / unpaid-leave deductions to review. Nothing was cut yet – "
+              "check each one below and click Deduct or Don't deduct.", "warn")
+    return redirect(url_for("payroll", month=month))
+
+
+@app.post("/payroll/<int:pid>/deduction")
+@perm_required("payroll.manage")
+def payroll_deduction(pid):
+    p = get_pay(pid)
+    if p["status"] == "paid":
+        flash("This salary is already paid. Mark it unpaid first.", "warn")
+        return redirect(url_for("payroll", month=p["month"]))
+    act = request.form.get("act")
+    row = dict(p)
+    if act == "apply":
+        row["absent_deduction"] = to_float(request.form.get("amount"), p["suggested_deduction"] or 0)
+        row["ded_status"] = "applied"
+    elif act == "waive":
+        row["absent_deduction"], row["ded_status"] = 0, "waived"
+    elif act == "undo":
+        row["absent_deduction"], row["ded_status"] = 0, "pending"
+    else:
+        abort(400)
+    row["net"] = calc_net(row)
+    x("UPDATE payroll SET absent_deduction=?, ded_status=?, net=? WHERE id=?",
+      (row["absent_deduction"], row["ded_status"], row["net"], pid))
+    flash({"apply": f"Deducted {money(row['absent_deduction'])} from {p['name']}'s salary.",
+           "waive": f"No deduction for {p['name']} this month.",
+           "undo": f"{p['name']}'s deduction is back to review."}[act], "ok")
+    return redirect(url_for("payroll", month=p["month"]) + "#ded")
+
+
+@app.post("/payroll/deductions/apply-all")
+@perm_required("payroll.manage")
+def payroll_deduct_all():
+    y, m = parse_month(request.form.get("month"))
+    month = f"{y:04d}-{m:02d}"
+    n = 0
+    for p in q("SELECT * FROM payroll WHERE month=? AND ded_status='pending' AND status<>'paid'", (month,)):
+        row = dict(p, absent_deduction=p["suggested_deduction"] or 0)
+        x("UPDATE payroll SET absent_deduction=?, ded_status='applied', net=? WHERE id=?",
+          (row["absent_deduction"], calc_net(row), p["id"]))
+        n += 1
+    flash(f"Applied all {n} suggested deduction(s) for {monthname(month)}.", "ok")
     return redirect(url_for("payroll", month=month))
 
 
@@ -2712,10 +2771,13 @@ def payroll_edit(pid):
             row[k] = to_float(request.form.get(k), row[k] or 0)
         row["remarks"] = request.form.get("remarks", "").strip()
         row["net"] = calc_net(row)
+        dst = p["ded_status"]
+        if abs(row["absent_deduction"] - (p["absent_deduction"] or 0)) >= 0.5:
+            dst = "applied" if row["absent_deduction"] > 0 else "waived"
         x("""UPDATE payroll SET basic=?, allowances=?, overtime=?, bonus=?, absent_deduction=?, tax=?,
-             other_deductions=?, remarks=?, net=? WHERE id=?""",
+             other_deductions=?, remarks=?, net=?, ded_status=? WHERE id=?""",
           (row["basic"], row["allowances"], row["overtime"], row["bonus"], row["absent_deduction"], row["tax"],
-           row["other_deductions"], row["remarks"], row["net"], pid))
+           row["other_deductions"], row["remarks"], row["net"], dst, pid))
         flash(f"Salary updated for {p['name']}. Net: {money(row['net'])}", "ok")
         return redirect(url_for("payroll", month=p["month"]))
     cuts = q("""SELECT lp.amount, l.id loan_id, l.reason FROM loan_payments lp JOIN loans l ON l.id=lp.loan_id
@@ -4159,6 +4221,7 @@ NOTIFY_TYPES = [  # (type, label, permission needed to receive it, important?)
     ("leave_pending", "Leave waiting for approval", ("leaves.view", "leaves.approve"), False),
     ("leave_upcoming", "Someone goes on leave tomorrow", ("leaves.view", "leaves.approve"), False),
     ("payroll_due", "Payroll not generated yet (month end)", ("payroll.manage",), False),
+    ("deduct_review", "Salary deductions waiting for HR review", ("payroll.manage",), True),
     ("loans_due", "Loan installments due this month", ("payroll.view",), False),
     ("asset_overdue", "Asset not returned on time", ("assets.view", "assets.manage"), False),
     ("birthday", "Birthdays & work anniversaries", ("employees.view",), False),
@@ -4213,6 +4276,15 @@ def build_alerts():
             if m and not q("SELECT 1 FROM payroll WHERE month=?", (m,), one=True):
                 add("payroll_due", f"pd-{m}", "Payroll reminder",
                     f"Salaries for {monthname(m)} have not been generated yet.", url_for("payroll", month=m))
+    if "deduct_review" in allowed:
+        for r in q("""SELECT p.month, COUNT(*) c, SUM(p.suggested_deduction) s FROM payroll p WHERE p.ded_status='pending'
+                      AND p.status<>'paid' GROUP BY p.month ORDER BY p.month DESC LIMIT 3"""):
+            names = [x_["name"] for x_ in q("""SELECT e.name FROM payroll p JOIN employees e ON e.id=p.employee_id
+                     WHERE p.month=? AND p.ded_status='pending' AND p.status<>'paid' ORDER BY e.name LIMIT 3""", (r["month"],))]
+            add("deduct_review", f"dr-{r['month']}-{r['c']}-{int(r['s'] or 0)}", "💸 Salary deductions to review",
+                f"{r['c']} salary(ies) for {monthname(r['month'])} have absences / lates – suggested {money(r['s'])} total. "
+                f"Not deducted until you approve.\n{', '.join(names)}{'…' if r['c'] > 3 else ''}",
+                url_for("payroll", month=r["month"]) + "#ded", True)
     if "loans_due" in allowed and today.day <= 5:
         n = q("""SELECT COUNT(*) c FROM loans l WHERE l.status='active' AND l.amount -
                  COALESCE((SELECT SUM(amount) FROM loan_payments p WHERE p.loan_id=l.id),0) > 0.5""", one=True)["c"]
@@ -4855,6 +4927,90 @@ def warning_letter(wid):
     return render_template("letter.html", e=e, kind="warning", kinds=LETTER_KINDS, on=on,
                            ref=_letter_ref("warning", e["id"], on) + f"/{n}", exit_d=None, lts=[], off="",
                            s=get_settings(), salary_kinds=SALARY_LETTERS, gross=0, w=w, wkind=WARN_KINDS[w["kind"]], wno=n)
+
+
+# ---------- asset management: who has what, give more assets to an existing employee
+ASSET_GROUPS = [("Laptop", "💻", ("Laptop", "Desktop PC", "Monitor", "Tablet")), ("Mobile", "📱", ("Mobile Phone", "SIM Card")),
+                ("Vehicle", "🚗", ("Vehicle", "Car", "Motorbike", "Bike")), ("Other", "📦", ())]
+
+
+def _asset_group(cat):
+    for name, _ic, cats in ASSET_GROUPS[:-1]:
+        if (cat or "") in cats:
+            return name
+    return "Other"
+
+
+@app.route("/assets/manage", methods=["GET", "POST"])
+@perm_required("assets.view", "assets.manage")
+def asset_management():
+    if request.method == "POST":
+        if not can("assets.manage"):
+            abort(403)
+        eid = request.form.get("employee_id", type=int)
+        e = q("SELECT id, name FROM employees WHERE id=? AND status='active'", (eid,), one=True)
+        back = url_for("asset_management", q=request.form.get("q", ""), grp=request.form.get("grp", "")) + f"#emp-{eid}"
+        if not e:
+            flash("Choose an existing active employee. New employees are added only from Add Employee.", "error")
+            return redirect(back)
+        act = request.form.get("act")
+        if act == "return":
+            aid = request.form.get("asset_id", type=int)
+            err = return_asset(aid, date.today().isoformat(), request.form.get("condition"), "Returned (Asset Management)")
+            flash(err or "Asset received back into store.", "error" if err else "ok")
+            return redirect(back)
+        ids = [int(i) for i in request.form.getlist("asset_id") if i.isdigit()]
+        name = request.form.get("new_name", "").strip()
+        if name:                                       # a brand-new asset given straight to the employee
+            cat = request.form.get("new_cat", "").strip() or "Other"
+            code = next_asset_code()
+            ids.append(x("""INSERT INTO assets(asset_code,name,category,serial_no,cost,condition,status,purchase_date)
+                            VALUES(?,?,?,?,?,?,'available',?)""",
+                         (code, name, cat, request.form.get("new_serial", "").strip() or None,
+                          to_float(request.form.get("new_cost"), 0), "New", date.today().isoformat())))
+        if not ids:
+            flash("Tick an asset from store, or type a new asset name.", "error")
+            return redirect(back)
+        done, errs = [], []
+        for aid in ids:
+            err = assign_asset(aid, eid, request.form.get("assigned_on") or date.today().isoformat(),
+                               request.form.get("expected_return"), None, request.form.get("notes", "").strip() or None)
+            a = q("SELECT asset_code, name FROM assets WHERE id=?", (aid,), one=True)
+            (errs if err else done).append(f"{a['asset_code']} {a['name']}" + (f" ({err})" if err else ""))
+        if done:
+            flash(f"Given to {e['name']}: " + ", ".join(done), "ok")
+        if errs:
+            flash("Not assigned: " + "; ".join(errs), "error")
+        return redirect(back)
+    term = request.args.get("q", "").strip()
+    grp = request.args.get("grp", "")
+    held = q("""SELECT a.*, s.assigned_on, s.expected_return, s.employee_id FROM asset_assignments s JOIN assets a ON a.id=s.asset_id
+                WHERE s.returned_on IS NULL ORDER BY a.category, a.name""")
+    by_emp = {}
+    for a in held:
+        by_emp.setdefault(a["employee_id"], []).append(dict(a, grp=_asset_group(a["category"])))
+    sql = """SELECT e.id, e.name, e.emp_code, e.designation, d.name dept FROM employees e LEFT JOIN departments d
+             ON d.id=e.department_id WHERE e.status='active'"""
+    args = []
+    if term:
+        sql += " AND (e.name LIKE ? OR e.emp_code LIKE ? OR e.designation LIKE ?)"
+        args += [f"%{term}%"] * 3
+    emps = []
+    for e in q(sql + " ORDER BY e.name", args):
+        mine = by_emp.get(e["id"], [])
+        if grp and not any(a["grp"] == grp for a in mine):
+            continue
+        emps.append({"e": e, "assets": mine, "value": sum(a["cost"] or 0 for a in mine)})
+    store = [dict(a, grp=_asset_group(a["category"])) for a in
+             q("SELECT * FROM assets WHERE status='available' ORDER BY category, name")]
+    allassets = q("SELECT category, status FROM assets")
+    groups = []
+    for name, ic, _c in ASSET_GROUPS:
+        mine = [a for a in allassets if _asset_group(a["category"]) == name]
+        groups.append({"name": name, "ic": ic, "total": len(mine), "given": sum(1 for a in mine if a["status"] == "assigned"),
+                       "store": sum(1 for a in mine if a["status"] == "available")})
+    return render_template("asset_management.html", emps=emps, store=store, groups=groups, term=term, grp=grp,
+                           cats=asset_categories(), with_assets=sum(1 for x_ in emps if x_["assets"]))
 
 
 init_db()

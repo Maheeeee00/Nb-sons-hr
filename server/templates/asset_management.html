@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% from "_asset_tabs.html" import asset_icon, asset_tabs with context %}
+{% block title %}Asset Management{% endblock %}
+{% block heading %}Asset management{% endblock %}
+{% block actions %}
+  {% if can('assets.manage') %}<a class="btn" href="{{ url_for('asset_new') }}">➕ Add asset to store</a>{% endif %}
+  <a class="btn" href="{{ url_for('assets') }}">💻 All assets</a>
+{% endblock %}
+{% block content %}
+{{ asset_tabs('manage') }}
+<div class="am-groups">
+  <a class="am-g {{ 'on' if not grp }}" href="{{ url_for('asset_management', q=term) }}" style="--i:0"><span>🗂️</span><div><b>{{ groups|sum(attribute='total') }}</b><small>All assets · {{ groups|sum(attribute='given') }} with staff</small></div></a>
+  {% for g_ in groups %}
+  <a class="am-g {{ 'on' if grp == g_.name }}" href="{{ url_for('asset_management', q=term, grp=g_.name) }}" style="--i: {{ loop.index }}"><span>{{ g_.ic }}</span>
+    <div><b>{{ g_.total }}</b><small>{{ {'Laptop': 'Laptops & computers', 'Mobile': 'Mobiles & SIMs', 'Vehicle': 'Cars & bikes', 'Other': 'Other items'}[g_.name] }} · {{ g_.given }} given · {{ g_.store }} in store</small></div></a>
+  {% endfor %}
+</div>
+
+<form method="get" class="card inline am-search"><input type="hidden" name="grp" value="{{ grp }}">
+  <div class="rp-searchbox" style="flex:1;min-width:260px"><span>🔍</span><input name="q" value="{{ term }}" placeholder="Search employee by name, code or designation…"></div>
+  <button class="btn primary">Search</button>{% if term or grp %}<a class="btn" href="{{ url_for('asset_management') }}">Clear</a>{% endif %}
+  <span class="muted">{{ with_assets }} of {{ emps|length }} employee(s) shown have company assets</span>
+</form>
+
+<div class="am-list">
+{% for row in emps %}{% set e = row.e %}
+  <div class="card am-emp {{ 'has' if row.assets }}" id="emp-{{ e.id }}" style="--i: {{ loop.index0 if loop.index0 < 20 else 20 }}">
+    <div class="am-head">
+      <span class="rp-avatar">{{ (e.name.split()|map('first')|join)[:2]|upper }}</span>
+      <div class="grow"><b><a href="{{ url_for('employee_view', eid=e.id) }}">{{ e.name }}</a></b>
+        <small>{{ e.emp_code }}{% if e.designation %} · {{ e.designation }}{% endif %}{% if e.dept %} · {{ e.dept }}{% endif %}</small></div>
+      <div class="am-count"><b>{{ row.assets|length }}</b><small>asset{{ '' if row.assets|length == 1 else 's' }}{% if row.value %} · {{ row.value|money }}{% endif %}</small></div>
+      {% if can('assets.manage') %}<button type="button" class="btn sm primary" onclick="var f=document.getElementById('af-{{ e.id }}');f.hidden=!f.hidden">➕ Assign more</button>{% endif %}
+    </div>
+    {% if row.assets %}
+    <div class="am-chips">{% for a in row.assets %}
+      <div class="am-chip g-{{ a.grp }}"><span class="am-ic">{{ asset_icon(a.category) }}</span>
+        <div><b><a href="{{ url_for('asset_view', aid=a.id) }}">{{ a.name }}</a></b>
+          <small>{{ a.asset_code }}{% if a.serial_no %} · {{ 'Reg' if a.grp == 'Vehicle' else 'S/N' }} {{ a.serial_no }}{% endif %} · since {{ a.assigned_on|nicedate }}</small></div>
+        {% if can('assets.manage') %}
+        <form method="post" onsubmit="return confirm('Receive {{ a.name }} ({{ a.asset_code }}) back from {{ e.name }}?')">{{ csrf() }}
+          <input type="hidden" name="act" value="return"><input type="hidden" name="employee_id" value="{{ e.id }}"><input type="hidden" name="asset_id" value="{{ a.id }}">
+          <input type="hidden" name="q" value="{{ term }}"><input type="hidden" name="grp" value="{{ grp }}">
+          <button class="hr-x" title="Receive back">↩</button></form>{% endif %}
+      </div>{% endfor %}</div>
+    {% else %}<p class="muted am-none">No company assets with this employee.</p>{% endif %}
+
+    {% if can('assets.manage') %}
+    <form method="post" class="am-form" id="af-{{ e.id }}" hidden>{{ csrf() }}
+      <input type="hidden" name="employee_id" value="{{ e.id }}"><input type="hidden" name="q" value="{{ term }}"><input type="hidden" name="grp" value="{{ grp }}">
+      <div class="am-cols">
+        <div><h4>From store <small class="muted">(tick one or more)</small></h4>
+          {% if store %}<input class="am-filter" placeholder="Filter store…" oninput="var v=this.value.toLowerCase();this.parentNode.querySelectorAll('.am-pick').forEach(function(l){l.hidden=l.textContent.toLowerCase().indexOf(v)<0})">
+          <div class="am-store">{% for a in store %}<label class="am-pick"><input type="checkbox" class="tick" name="asset_id" value="{{ a.id }}"> {{ asset_icon(a.category) }} <b>{{ a.name }}</b> <small>{{ a.asset_code }}{% if a.serial_no %} · {{ a.serial_no }}{% endif %}</small></label>{% endfor %}</div>
+          {% else %}<p class="muted">The store is empty – add a new item on the right.</p>{% endif %}</div>
+        <div><h4>Or a new item <small class="muted">(added to the register and given now)</small></h4>
+          <div class="form-grid">
+            <div><label>Type</label><select name="new_cat">{% for c in cats %}<option {{ 'selected' if c == 'Laptop' }}>{{ c }}</option>{% endfor %}</select></div>
+            <div><label>Name / model</label><input name="new_name" placeholder="e.g. Dell Latitude 5420, Honda City"></div>
+            <div><label>Serial / IMEI / Reg. no.</label><input name="new_serial"></div>
+            <div><label>Cost</label><input type="number" step="any" min="0" name="new_cost"></div>
+          </div></div>
+      </div>
+      <div class="form-grid" style="margin-top:10px">
+        <div><label>Given on</label><input type="date" name="assigned_on" value="{{ today.isoformat() }}"></div>
+        <div><label>Return by <small class="muted">(optional)</small></label><input type="date" name="expected_return"></div>
+        <div><label>Notes</label><input name="notes" placeholder="e.g. with charger and bag"></div>
+      </div>
+      <div class="btns" style="margin-top:10px"><button class="btn primary">✅ Give to {{ e.name.split()[0] }}</button>
+        <button type="button" class="btn" onclick="this.closest('form').hidden=true">Cancel</button></div>
+    </form>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="card empty">{{ 'No employee matches your search.' if term or grp else 'No active employees yet – add them from Employees → Add Employee.' }}</div>
+{% endfor %}
+</div>
+<script>if(location.hash.indexOf('#emp-')===0){var el=document.querySelector(location.hash);if(el){el.classList.add('am-flash');}}</script>
+{% endblock %}

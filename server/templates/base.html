@@ -105,7 +105,7 @@
         {{ nav('leaves', '🌴', 'Leaves', ('<span class="pill">%d</span>' % pending_leaves) if pending_leaves else '') }}
       {% endif %}
       {% if can('employees.view', 'payroll.view', 'attendance.view', 'attendance.manage', 'leaves.view') %}
-        {% set hr_eps = ['holidays', 'increments', 'settlements', 'settlement_edit', 'documents', 'letters', 'warnings_page'] %}
+        {% set hr_eps = ['holidays', 'asset_management', 'increments', 'settlements', 'settlement_edit', 'documents', 'letters', 'warnings_page'] %}
         <details class="navgroup" {{ 'open' if request.endpoint in hr_eps }}>
           <summary class="{{ 'active' if request.endpoint in hr_eps }}"><span class="ic">🧰</span><span class="tx">HR Tools</span><span class="chev">›</span></summary>
           <div class="sub">
@@ -113,6 +113,7 @@
             {% if can('payroll.view') %}{{ nav('increments', '•', 'Increments & Promotions') }}{{ nav('settlements', '•', 'Final Settlement') }}{% endif %}
             {% if can('employees.view') %}{{ nav('documents', '•', 'Employee Documents') }}{{ nav('warnings_page', '•', 'Warnings & Discipline') }}{% endif %}
             {% if can('employees.manage') %}{{ nav('letters', '•', 'HR Letters') }}{% endif %}
+            {% if can('assets.view', 'assets.manage') %}{{ nav('asset_management', '•', 'Asset Management') }}{% endif %}
           </div>
         </details>
       {% endif %}
@@ -128,10 +129,11 @@
         </details>
       {% endif %}
       {% if can('assets.view') %}
-        {% set ast_eps = ['assets', 'asset_new', 'asset_view', 'asset_edit', 'assets_assign', 'assets_history'] %}
+        {% set ast_eps = ['asset_management', 'assets', 'asset_new', 'asset_view', 'asset_edit', 'assets_assign', 'assets_history'] %}
         <details class="navgroup" {{ 'open' if request.endpoint in ast_eps }}>
           <summary class="{{ 'active' if request.endpoint in ast_eps }}"><span class="ic">💻</span><span class="tx">Assets</span><span class="chev">›</span></summary>
           <div class="sub">
+            {{ nav('asset_management', '•', 'Asset Management') }}
             {{ nav('assets', '•', 'All Assets') }}
             {% if can('assets.manage') %}
             {{ nav('asset_new', '•', 'Add Asset') }}
