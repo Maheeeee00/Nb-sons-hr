@@ -5,6 +5,7 @@
 {% block heading %}Assets · Products (medicines){% endblock %}
 {% block actions %}
   {% if can('assets.manage') %}<a class="btn" href="#add" onclick="document.getElementById('padd').open=true">➕ Add medicine</a>
+  <a class="btn" href="{{ url_for('products_import') }}">📤 Import medicines</a>
   <a class="btn primary" href="{{ url_for('product_issue') }}">🤲 Issue medicines</a>{% endif %}
 {% endblock %}
 {% block content %}

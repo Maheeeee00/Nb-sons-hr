@@ -129,7 +129,7 @@
         </details>
       {% endif %}
       {% if can('assets.view') %}
-        {% set ast_eps = ['products', 'product_issue', 'product_moves_page', 'product_view', 'asset_management', 'assets', 'asset_new', 'asset_view', 'asset_edit', 'assets_assign', 'assets_history'] %}
+        {% set ast_eps = ['products_import', 'assets_import', 'products', 'product_issue', 'product_moves_page', 'product_view', 'asset_management', 'assets', 'asset_new', 'asset_view', 'asset_edit', 'assets_assign', 'assets_history'] %}
         <details class="navgroup" {{ 'open' if request.endpoint in ast_eps }}>
           <summary class="{{ 'active' if request.endpoint in ast_eps }}"><span class="ic">💻</span><span class="tx">Assets</span><small class="navhint">+ medicines</small><span class="chev">›</span></summary>
           <div class="sub">
@@ -139,10 +139,12 @@
             {{ nav('asset_new', '•', 'Add Asset') }}
             {{ nav('assets_assign', '•', 'Assign / Return') }}
             {% endif %}
+            {% if can('assets.manage') %}{{ nav('assets_import', '•', 'Import Assets') }}{% endif %}
             {{ nav('assets_history', '•', 'Assignment History') }}
             <div class="nav-sub-label">💊 Products (Medicines)</div>
             {{ nav('products', '•', 'Medicine Stock') }}
             {% if can('assets.manage') %}{{ nav('product_issue', '•', 'Issue Medicines') }}{% endif %}
+            {% if can('assets.manage') %}{{ nav('products_import', '•', 'Import Medicines') }}{% endif %}
             {{ nav('product_moves_page', '•', 'Medicine History') }}
           </div>
         </details>

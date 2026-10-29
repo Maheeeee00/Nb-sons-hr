@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "2.4.0"
+APP_VERSION = "2.4.1"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -693,7 +693,7 @@ AUDIT_NAMES = {
     "settlement_delete": "Deleted / reopened settlement", "doc_upload": "Uploaded employee document",
     "doc_delete": "Deleted employee document", "doc_edit": "Edited employee document", "warnings_page": "Issued warning",
     "warning_update": "Changed warning", "asset_management": "Asset management", "products": "Medicines (products)",
-    "product_issue": "Issued products", "product_view": "Changed product", "asset_delete": "Deleted asset", "assets_assign": "Assigned asset", "assets_import": "Imported assets (page)",
+    "product_issue": "Issued products", "products_import": "Imported medicines (page)", "product_view": "Changed product", "asset_delete": "Deleted asset", "assets_assign": "Assigned asset", "assets_import": "Imported assets (page)",
 }
 _SKIP_FIELDS = {"csrf", "password", "new", "confirm", "current", "token", "changed"}
 
@@ -707,7 +707,7 @@ def _after(resp):
         resp.headers["Cache-Control"] = "no-store"             # don't keep HR data in the browser cache
     try:
         if request.method == "POST" and g.get("user") and resp.status_code < 400 and \
-                request.endpoint not in ("login", "logout", "checkin", "checkout", "backups", "backup_restore", "backup_delete", "assets_import", "recycle_bin"):
+                request.endpoint not in ("login", "logout", "checkin", "checkout", "backups", "backup_restore", "backup_delete", "assets_import", "products_import", "recycle_bin"):
             name = AUDIT_NAMES.get(request.endpoint, request.endpoint or "?")
             bits = [f"{k}={v}" for k, v in request.form.items() if k not in _SKIP_FIELDS and v and len(v) < 60][:8]
             ids = ", ".join(f"{k} {v}" for k, v in (request.view_args or {}).items())
@@ -5353,6 +5353,141 @@ def product_view(pid):
                    FROM product_moves WHERE product_id=? AND employee_id IS NOT NULL GROUP BY employee_id HAVING q>0
                    ORDER BY q DESC""", (pid,))
     return render_template("product_view.html", p=pr, moves=moves, holders=holders, cats=product_cats(), units=PRODUCT_UNITS)
+
+
+# ---------- import medicines from Excel / CSV
+MED_IMPORT_COLS = [("code", "Code"), ("name", "Medicine Name *"), ("category", "Category"), ("unit", "Unit"),
+                   ("price", "Price per Unit"), ("qty", "Quantity"), ("min_stock", "Alert at (min stock)"),
+                   ("batch_no", "Batch No"), ("expiry", "Expiry Date"), ("notes", "Notes")]
+_MED_ALIASES = {"code": "code", "productcode": "code", "medicinecode": "code", "itemcode": "code", "sku": "code",
+                "name": "name", "medicine": "name", "medicinename": "name", "product": "name", "productname": "name",
+                "item": "name", "itemname": "name", "brandname": "name", "description": "name",
+                "category": "category", "type": "category", "form": "category", "dosageform": "category", "group": "category",
+                "unit": "unit", "uom": "unit", "pack": "unit", "packing": "unit",
+                "price": "price", "rate": "price", "unitprice": "price", "tradeprice": "price", "tp": "price", "cost": "price",
+                "priceperunit": "price", "mrp": "price",
+                "qty": "qty", "quantity": "qty", "stock": "qty", "openingstock": "qty", "balance": "qty", "units": "qty",
+                "minstock": "min_stock", "min": "min_stock", "reorderlevel": "min_stock", "alertat": "min_stock",
+                "alertatminstock": "min_stock",
+                "batch": "batch_no", "batchno": "batch_no", "batchnumber": "batch_no", "lot": "batch_no", "lotno": "batch_no",
+                "expiry": "expiry", "expirydate": "expiry", "exp": "expiry", "expdate": "expiry", "expireson": "expiry",
+                "notes": "notes", "remarks": "notes"}
+
+
+def _mkey(h):
+    return _MED_ALIASES.get("".join(ch for ch in str(h or "").lower() if ch.isalnum()))
+
+
+def _parse_expiry(v):
+    """Expiry like 31/03/2027, 03/2027, Mar-2027 or 2027-03 (month only = last day of that month)."""
+    d, err = _parse_any_date(v)
+    if d or v in (None, ""):
+        return d
+    s_ = str(v).strip()
+    for fmt in ("%m/%Y", "%m-%Y", "%b-%Y", "%b %Y", "%B %Y", "%B-%Y", "%Y-%m", "%m/%y", "%b-%y"):
+        try:
+            dt = datetime.strptime(s_, fmt)
+            return date(dt.year, dt.month, calendar.monthrange(dt.year, dt.month)[1]).isoformat()
+        except ValueError:
+            pass
+    return ""
+
+
+@app.route("/products/import", methods=["GET", "POST"])
+@perm_required("assets.manage")
+def products_import():
+    result = None
+    if request.method == "POST":
+        fs = request.files.get("file")
+        if not fs or not fs.filename:
+            flash("Please choose an Excel or CSV file.", "error")
+            return redirect(url_for("products_import"))
+        try:
+            raw = read_upload(fs)
+        except Exception as e:                                       # noqa: BLE001
+            flash(f"Couldn't read the file: {e}", "error")
+            return redirect(url_for("products_import"))
+        hdr_i, cols = None, {}
+        for i, r in enumerate(raw[:10]):
+            m = {j: _mkey(v) for j, v in enumerate(r) if _mkey(v)}
+            if "name" in m.values():
+                hdr_i, cols = i, m
+                break
+        if hdr_i is None:
+            flash("Couldn't find the header row. The file needs at least a 'Medicine Name' column – download the template.", "error")
+            return redirect(url_for("products_import"))
+        added = updated = 0
+        stock_in = 0.0
+        problems = []
+        for n, r in enumerate(raw[hdr_i + 1:], start=hdr_i + 2):
+            cell = {cols[j]: (v if not isinstance(v, str) else v.strip()) for j, v in enumerate(r) if j in cols}
+            if not any(v not in (None, "") for v in cell.values()):
+                continue
+            name = _cell_text(cell.get("name"))
+            if not name:
+                problems.append((n, "Medicine name is empty – row skipped"))
+                continue
+            code = _cell_text(cell.get("code")).upper()
+            batch = _cell_text(cell.get("batch_no")) or None
+            exp = _parse_expiry(cell.get("expiry")) if cell.get("expiry") not in (None, "") else ""
+            if cell.get("expiry") not in (None, "") and not exp:
+                problems.append((n, f"{name}: expiry '{cell.get('expiry')}' not understood (use DD/MM/YYYY or MM/YYYY) – saved without expiry"))
+            qty = to_float(cell.get("qty"), 0)
+            if qty < 0:
+                problems.append((n, f"{name}: negative quantity ignored"))
+                qty = 0
+            ex = q("SELECT * FROM products WHERE code=?", (code,), one=True) if code else None
+            if not ex and not code:                    # same name + same batch = same medicine, don't add twice
+                ex = q("SELECT * FROM products WHERE name=? COLLATE NOCASE AND COALESCE(batch_no,'')=? AND active=1",
+                       (name, batch or ""), one=True)
+            unit = _cell_text(cell.get("unit")).lower() or (ex["unit"] if ex else "box")
+            vals = (name, _cell_text(cell.get("category")) or (ex["category"] if ex else None), unit,
+                    to_float(cell.get("price"), ex["price"] if ex else 0),
+                    to_float(cell.get("min_stock"), ex["min_stock"] if ex else 0),
+                    batch or (ex["batch_no"] if ex else None), exp or (ex["expiry"] if ex else None),
+                    _cell_text(cell.get("notes")) or (ex["notes"] if ex else None))
+            if ex:
+                db().execute("""UPDATE products SET name=?, category=?, unit=?, price=?, min_stock=?, batch_no=?, expiry=?,
+                                notes=?, active=1 WHERE id=?""", vals + (ex["id"],))
+                pid = ex["id"]
+                updated += 1
+            else:
+                code = code or next_product_code()
+                pid = db().execute("""INSERT INTO products(code,name,category,unit,price,min_stock,batch_no,expiry,notes,stock)
+                                      VALUES(?,?,?,?,?,?,?,?,?,0)""", (code,) + vals).lastrowid
+                added += 1
+            if qty > 0:
+                product_move(pid, "in", qty, note=f"Imported from {fs.filename}")
+                stock_in += qty
+            db().commit()
+        audit("Imported medicines", f"{added} new, {updated} updated from {fs.filename}")
+        result = {"added": added, "updated": updated, "stock_in": stock_in, "problems": problems, "file": fs.filename}
+    return render_template("products_import.html", result=result, cols=MED_IMPORT_COLS)
+
+
+@app.route("/products/import/template")
+@perm_required("assets.manage")
+def products_import_template():
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Medicines"
+    ws.append([label for _, label in MED_IMPORT_COLS])
+    ws.append(["", "Panadol 500mg", "Tablets", "box", 350, 100, 20, "PN2401", "31/12/2027", ""])
+    ws.append(["", "Augmentin 625mg", "Tablets", "strip", 420, 50, 10, "AG1188", "06/2027", "Physician samples"])
+    ws.append(["", "Brufen Syrup 120ml", "Syrup", "bottle", 180, 40, 10, "BR551", "Mar-2028", ""])
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="0F2A44")
+    for i, (_, label) in enumerate(MED_IMPORT_COLS, start=1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = max(14, len(label) + 3)
+    ws.freeze_panes = "A2"
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name="medicine-import-template.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 init_db()
