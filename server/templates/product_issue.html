@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "_m.html" import csrf %}
+{% from "_prod_tabs.html" import prod_tabs with context %}
+{% block title %}Issue Products{% endblock %}
+{% block heading %}Issue products to an employee{% endblock %}
+{% block content %}
+{{ prod_tabs('issue') }}
+{% if not prods %}<div class="card empty">No products yet. <a href="{{ url_for('products') }}#add">Add products</a> first.</div>{% else %}
+<form method="post" class="card" id="pif">{{ csrf() }}
+  <div class="form-grid">
+    <div><label>Employee *</label><select name="employee_id" required><option value="">— choose —</option>
+      {% for e in emps %}<option value="{{ e.id }}" {{ 'selected' if pre == e.id }}>{{ e.name }} ({{ e.emp_code }})</option>{% endfor %}</select></div>
+    <div><label>Date</label><input type="date" name="on_date" value="{{ today.isoformat() }}"></div>
+    <div><label>Note</label><input name="note" placeholder="e.g. Monthly stationery, new joiner kit"></div>
+  </div>
+  <h3 class="st-h">Products</h3>
+  <div id="prows" class="pi-rows"></div>
+  <button type="button" class="btn sm" onclick="addRow()">➕ Add another product</button>
+  <div class="pi-total" id="ptot"></div>
+  <div class="btns" style="margin-top:12px"><button class="btn primary">✅ Issue</button><button class="btn" name="again" value="1">Issue &amp; give more</button></div>
+</form>
+<template id="prow"><div class="pi-row">
+  <select name="product_id" onchange="upd()"><option value="">— product —</option>
+    {% for p in prods %}<option value="{{ p.id }}" data-s="{{ p.stock }}" data-u="{{ p.unit }}" data-p="{{ p.price }}" {{ 'disabled' if p.stock <= 0 }}>{{ p.name }} ({{ p.code }}) · {{ p.stock|num }} {{ p.unit }} left</option>{% endfor %}</select>
+  <input type="number" name="qty" step="any" min="0" placeholder="Qty" oninput="upd()">
+  <span class="pi-info"></span><button type="button" class="hr-x" onclick="this.parentNode.remove();upd()">✕</button></div></template>
+<script>
+function addRow(pid){var t=document.getElementById('prow').content.cloneNode(true);document.getElementById('prows').appendChild(t);var r=document.getElementById('prows').lastElementChild;if(pid){r.querySelector('select').value=pid}upd();return r}
+function upd(){var tot=0;document.querySelectorAll('.pi-row').forEach(function(r){var o=r.querySelector('select').selectedOptions[0],q=+r.querySelector('input').value||0,i=r.querySelector('.pi-info');
+ if(!o||!o.value){i.textContent='';return}var s=+o.dataset.s;tot+=q*(+o.dataset.p||0);i.textContent=q>s?'⚠ only '+s+' '+o.dataset.u+' in stock':(q?'→ '+(s-q)+' '+o.dataset.u+' left':'');i.className='pi-info'+(q>s?' bad':'')});
+ document.getElementById('ptot').textContent=tot?'Value: {{ settings.currency }} '+Math.round(tot).toLocaleString('en-US'):''}
+addRow({{ pre_p or "''" }});
+</script>
+{% endif %}
+{% endblock %}

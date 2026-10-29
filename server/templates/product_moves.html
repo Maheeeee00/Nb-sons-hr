@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_prod_tabs.html" import prod_tabs with context %}
+{% block title %}Stock History{% endblock %}
+{% block heading %}Product stock history{% endblock %}
+{% block actions %}<a class="btn" href="{{ url_for('product_moves_page', kind=kind, emp=emp or '', export='csv') }}">📥 Export</a>{% endblock %}
+{% block content %}
+{{ prod_tabs('history') }}
+{% if by_emp %}<div class="card"><div class="card-head"><h2>🏆 Most products issued to</h2></div>
+  <div class="pr-chips">{% for b in by_emp %}<a href="{{ url_for('product_moves_page', emp=b.employee_id) }}" class="{{ 'on' if emp == b.employee_id }}">{{ b.employee_name }} <b>{{ settings.currency }} {{ b.v|money }}</b></a>{% endfor %}</div></div>{% endif %}
+<div class="card">
+  <div class="tabs">{% for k, l in [('', 'All'), ('issue', '🤲 Issued'), ('in', '📥 Stock in'), ('return', '↩ Returned'), ('adjust', '⚖️ Corrections')] %}<a href="{{ url_for('product_moves_page', kind=k, emp=emp or '') }}" class="{{ 'on' if kind == k }}">{{ l }}</a>{% endfor %}</div>
+  <form method="get" class="inline" style="margin:10px 0"><input type="hidden" name="kind" value="{{ kind }}">
+    <select name="emp" onchange="this.form.submit()"><option value="">All employees</option>{% for e in emps %}<option value="{{ e.id }}" {{ 'selected' if emp == e.id }}>{{ e.name }}</option>{% endfor %}</select></form>
+  {% if rows %}<div class="table-wrap"><table>
+    <thead><tr><th>Date</th><th>Type</th><th>Product</th><th class="num">Qty</th><th class="num">Value</th><th>Employee</th><th>Note</th><th>By</th></tr></thead>
+    <tbody>{% for m in rows %}<tr>
+      <td>{{ m.on_date|nicedate }}</td>
+      <td><span class="badge pm-{{ m.kind }}">{{ {'in': '📥 Stock in', 'issue': '🤲 Issued', 'return': '↩ Returned', 'adjust': '⚖️ Correction'}[m.kind] }}</span></td>
+      <td><a href="{{ url_for('product_view', pid=m.product_id) }}"><b>{{ m.pname }}</b></a><br><small>{{ m.code }}</small></td>
+      <td class="num"><b>{{ '−' if m.kind == 'issue' or (m.kind == 'adjust' and m.qty < 0) else '+' }}{{ (m.qty|abs)|num }}</b> {{ m.unit }}</td>
+      <td class="num">{{ ((m.qty|abs) * (m.price or 0))|money }}</td>
+      <td>{% if m.employee_id %}<a href="{{ url_for('employee_view', eid=m.employee_id) }}#products">{{ m.employee_name }}</a>{% else %}{{ m.employee_name or '—' }}{% endif %}</td>
+      <td class="muted">{{ m.note or '' }}</td><td class="muted">{{ m.created_by }}</td></tr>{% endfor %}</tbody>
+  </table></div>{% else %}<p class="muted">No stock movements yet.</p>{% endif %}
+</div>
+{% endblock %}

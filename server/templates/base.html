@@ -117,7 +117,7 @@
           </div>
         </details>
       {% endif %}
-      {% if can('payroll.view', 'assets.view') %}<div class="nav-label">Salary & Assets</div>{% endif %}
+      {% if can('payroll.view', 'assets.view') %}<div class="nav-label">Salary, Assets & Products</div>{% endif %}
       {% if can('payroll.view') %}
         {% set pay_eps = ['payroll', 'payroll_edit', 'loans', 'loan_view'] %}
         <details class="navgroup" {{ 'open' if request.endpoint in pay_eps }}>
@@ -131,7 +131,7 @@
       {% if can('assets.view') %}
         {% set ast_eps = ['asset_management', 'assets', 'asset_new', 'asset_view', 'asset_edit', 'assets_assign', 'assets_history'] %}
         <details class="navgroup" {{ 'open' if request.endpoint in ast_eps }}>
-          <summary class="{{ 'active' if request.endpoint in ast_eps }}"><span class="ic">💻</span><span class="tx">Assets</span><span class="chev">›</span></summary>
+          <summary class="{{ 'active' if request.endpoint in ast_eps }}"><span class="ic">💻</span><span class="tx">Assets</span><small class="navhint">laptops · cars</small><span class="chev">›</span></summary>
           <div class="sub">
             {{ nav('asset_management', '•', 'Asset Management') }}
             {{ nav('assets', '•', 'All Assets') }}
@@ -140,6 +140,17 @@
             {{ nav('assets_assign', '•', 'Assign / Return') }}
             {% endif %}
             {{ nav('assets_history', '•', 'Assignment History') }}
+          </div>
+        </details>
+      {% endif %}
+      {% if can('assets.view', 'assets.manage') %}
+        {% set prd_eps = ['products', 'product_issue', 'product_moves_page', 'product_view'] %}
+        <details class="navgroup" {{ 'open' if request.endpoint in prd_eps }}>
+          <summary class="{{ 'active' if request.endpoint in prd_eps }}"><span class="ic">📦</span><span class="tx">Products</span><small class="navhint">stock</small><span class="chev">›</span></summary>
+          <div class="sub">
+            {{ nav('products', '•', 'Products & Stock') }}
+            {% if can('assets.manage') %}{{ nav('product_issue', '•', 'Issue to Employee') }}{% endif %}
+            {{ nav('product_moves_page', '•', 'Stock History') }}
           </div>
         </details>
       {% endif %}

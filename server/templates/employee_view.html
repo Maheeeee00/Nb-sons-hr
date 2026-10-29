@@ -166,6 +166,16 @@
   </div>
   {% endif %}
 
+  {% if can('assets.view', 'assets.manage') %}
+  <div class="card" id="products">
+    <div class="card-head"><h2>📦 Products issued</h2>{% if can('assets.manage') %}<a href="{{ url_for('product_issue', emp=e.id) }}">+ Issue products</a>{% endif %}</div>
+    {% if prods_got %}<ul class="plist">{% for m in prods_got %}<li><div class="grow"><b><a href="{{ url_for('product_view', pid=m.product_id) }}">{{ m.pname }}</a></b><small>{{ m.on_date|nicedate }}{% if m.note %} · {{ m.note }}{% endif %}</small></div>
+      <span class="badge pm-{{ m.kind }}">{{ '−' if m.kind == 'return' }}{{ m.qty|num }} {{ m.unit }}{{ ' returned' if m.kind == 'return' }}</span></li>{% endfor %}</ul>
+    <a href="{{ url_for('product_moves_page', emp=e.id) }}" style="font-size:13px">Full history →</a>
+    {% else %}<p class="muted" style="margin:0">No products issued yet.</p>{% endif %}
+  </div>
+  {% endif %}
+
   <div class="card" id="docs">
     <div class="card-head"><h2>📁 Documents ({{ docs|length }})</h2>{% if can('employees.manage') %}<a href="#" onclick="var d=document.getElementById('pfdup');d.open=!d.open;return false">+ Upload</a>{% endif %}</div>
     {% if can('employees.manage') %}<details id="pfdup" class="pf-up" {{ 'open' if not docs }}><summary hidden></summary>{% include "_doc_upload.html" %}</details>{% endif %}

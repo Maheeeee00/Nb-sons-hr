@@ -1,0 +1,8 @@
+{% macro prod_tabs(active) %}
+<nav class="subnav">
+  <a href="{{ url_for('products') }}" class="{{ 'on' if active == 'list' }}"><span>📦</span> Products &amp; Stock</a>
+  {% if can('assets.manage') %}<a href="{{ url_for('product_issue') }}" class="{{ 'on' if active == 'issue' }}"><span>🤲</span> Issue to Employee</a>{% endif %}
+  <a href="{{ url_for('product_moves_page') }}" class="{{ 'on' if active == 'history' }}"><span>🕘</span> Stock History</a>
+  <a href="{{ url_for('asset_management') }}"><span>💻</span> Go to Assets</a>
+</nav>
+{% endmacro %}

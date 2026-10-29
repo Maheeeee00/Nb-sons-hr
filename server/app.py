@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -138,6 +138,16 @@ CREATE TABLE IF NOT EXISTS warnings(
   id INTEGER PRIMARY KEY, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
   issued_on TEXT NOT NULL, kind TEXT DEFAULT 'written', subject TEXT NOT NULL, details TEXT, action TEXT,
   reply_by TEXT, status TEXT DEFAULT 'open', response TEXT, issued_by TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS products(
+  id INTEGER PRIMARY KEY, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL, category TEXT, unit TEXT DEFAULT 'pcs',
+  price REAL DEFAULT 0, stock REAL DEFAULT 0, min_stock REAL DEFAULT 0, notes TEXT, active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS product_moves(
+  id INTEGER PRIMARY KEY, product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE, kind TEXT NOT NULL,
+  qty REAL NOT NULL, employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, employee_name TEXT,
+  on_date TEXT, note TEXT, created_by TEXT, created_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_pm_prod ON product_moves(product_id);
+CREATE INDEX IF NOT EXISTS idx_pm_emp ON product_moves(employee_id);
 CREATE INDEX IF NOT EXISTS idx_inc_emp ON increments(employee_id);
 CREATE INDEX IF NOT EXISTS idx_doc_emp ON emp_documents(employee_id);
 CREATE INDEX IF NOT EXISTS idx_warn_emp ON warnings(employee_id);
@@ -665,7 +675,8 @@ AUDIT_NAMES = {
     "increments": "Gave increment / promotion", "increment_undo": "Undid salary change", "settlement_edit": "Final settlement",
     "settlement_delete": "Deleted / reopened settlement", "doc_upload": "Uploaded employee document",
     "doc_delete": "Deleted employee document", "doc_edit": "Edited employee document", "warnings_page": "Issued warning",
-    "warning_update": "Changed warning", "asset_management": "Asset management", "asset_delete": "Deleted asset", "assets_assign": "Assigned asset", "assets_import": "Imported assets (page)",
+    "warning_update": "Changed warning", "asset_management": "Asset management", "products": "Products (stock)",
+    "product_issue": "Issued products", "product_view": "Changed product", "asset_delete": "Deleted asset", "assets_assign": "Assigned asset", "assets_import": "Imported assets (page)",
 }
 _SKIP_FIELDS = {"csrf", "password", "new", "confirm", "current", "token", "changed"}
 
@@ -1316,7 +1327,10 @@ def employee_view(eid):
     warns = q("SELECT * FROM warnings WHERE employee_id=? ORDER BY issued_on DESC, id DESC", (eid,))
     sett = q("SELECT * FROM settlements WHERE employee_id=? ORDER BY id DESC LIMIT 1", (eid,), one=True) \
         if can("payroll.view") else None
-    return render_template("employee_view.html", incs=incs, docs=docs, warns=warns, sett=sett, DOC_TYPES=DOC_TYPES,
+    prods_got = q("""SELECT m.*, p.name pname, p.unit, p.code FROM product_moves m JOIN products p ON p.id=m.product_id
+                     WHERE m.employee_id=? AND m.kind IN ('issue','return') ORDER BY m.on_date DESC, m.id DESC LIMIT 15""", (eid,)) \
+        if can("assets.view", "assets.manage") else []
+    return render_template("employee_view.html", prods_got=prods_got, incs=incs, docs=docs, warns=warns, sett=sett, DOC_TYPES=DOC_TYPES,
                            WARN_KINDS=WARN_KINDS, encash_total=encash_total, day_rate=rate,
                            encash_label=ENCASH_BASIS.get(get_settings().get("encash_basis") or "gross26"), team=team, emp_loans=emp_loans, e=e, counts=counts, pays=pays, acct=acct, leaves=leaves,
                            balances=bal, month=month, cal=cal, att_pct=att_pct, tenure=tenure,
@@ -3373,7 +3387,7 @@ def backup():
 # --------------------------------------------------------------------------- recycle bin
 BIN_KINDS = {"employee": ("👤", "Employee"), "department": ("🏢", "Department"), "user": ("🔐", "User login"),
              "role": ("🛡️", "Role"), "asset": ("💻", "Asset"), "payroll": ("💰", "Salary row"),
-             "loan": ("🏦", "Loan"), "leave_type": ("🌴", "Leave type")}
+             "loan": ("🏦", "Loan"), "leave_type": ("🌴", "Leave type"), "product": ("📦", "Product")}
 
 
 def _rows(sql, args=()):
@@ -3457,6 +3471,12 @@ def to_bin(kind, oid):
             return
         label, detail = t[0]["name"], f"{t[0]['days_per_year']} days/year"
         tables = [("leave_types", t)]
+    elif kind == "product":
+        pr = _rows("SELECT * FROM products WHERE id=?", (oid,))
+        if not pr:
+            return
+        label, detail = f"{pr[0]['code']} · {pr[0]['name']}", f"stock {pr[0]['stock']:g} {pr[0]['unit'] or ''}"
+        tables = [("products", pr), ("product_moves", _rows("SELECT * FROM product_moves WHERE product_id=?", (oid,)))]
     import json
     db().execute("INSERT INTO recycle_bin(kind,label,detail,deleted_at,deleted_by,data) VALUES(?,?,?,?,?,?)",
                  (kind, label, detail, datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -4225,6 +4245,7 @@ NOTIFY_TYPES = [  # (type, label, permission needed to receive it, important?)
     ("loans_due", "Loan installments due this month", ("payroll.view",), False),
     ("asset_overdue", "Asset not returned on time", ("assets.view", "assets.manage"), False),
     ("birthday", "Birthdays & work anniversaries", ("employees.view",), False),
+    ("low_stock", "Product stock running low", ("assets.view", "assets.manage"), False),
     ("doc_expiry", "Employee document expired / expiring within 30 days", ("employees.view",), False),
     ("holiday", "Public holiday tomorrow", ("attendance.view", "attendance.manage", "leaves.view"), False),
     ("security", "Security: account locked after wrong passwords", ("users",), True),
@@ -4311,6 +4332,12 @@ def build_alerts():
                 add("birthday", f"wa-{e['id']}-{today.year}", "🎉 Work anniversary",
                     f"{e['name']} completes {yrs} year{'s' if yrs > 1 else ''} with the company today.",
                     url_for("employee_view", eid=e["id"]))
+    if "low_stock" in allowed:
+        for pr in q("""SELECT id, name, code, stock, min_stock, unit FROM products WHERE active=1 AND min_stock>0
+                       AND stock<=min_stock ORDER BY stock LIMIT 8"""):
+            add("low_stock", f"ls-{pr['id']}-{pr['stock']:g}", "📦 Low stock" if pr["stock"] > 0 else "📦 Out of stock",
+                f"{pr['name']} ({pr['code']}) – {pr['stock']:g} {pr['unit'] or ''} left (minimum {pr['min_stock']:g}).",
+                url_for("product_view", pid=pr["id"]))
     if "doc_expiry" in allowed:
         for dc in q("""SELECT dc.id, dc.title, dc.expiry, dc.employee_id, e.name FROM emp_documents dc
                        JOIN employees e ON e.id=dc.employee_id WHERE e.status='active' AND dc.expiry IS NOT NULL
@@ -5011,6 +5038,192 @@ def asset_management():
                        "store": sum(1 for a in mine if a["status"] == "available")})
     return render_template("asset_management.html", emps=emps, store=store, groups=groups, term=term, grp=grp,
                            cats=asset_categories(), with_assets=sum(1 for x_ in emps if x_["assets"]))
+
+
+# ---------- products (stock items issued to employees by quantity – separate from assets)
+PRODUCT_UNITS = ["pcs", "box", "pack", "dozen", "set", "pair", "bottle", "kg", "litre", "ream", "carton"]
+PRODUCT_CATS = ["Stationery", "Uniform", "Medicine / Samples", "Marketing material", "Mobile SIM / Card", "Safety gear",
+                "Cleaning", "Kitchen", "Spare parts", "Other"]
+
+
+def next_product_code():
+    nums = [int(r["code"][4:]) for r in q("SELECT code FROM products WHERE code LIKE 'PRD-%'") if r["code"][4:].isdigit()]
+    return f"PRD-{(max(nums) + 1 if nums else 1):04d}"
+
+
+def product_move(pid, kind, qty, eid=None, on=None, note=None):
+    """Record a stock movement and update the stock. kind: in / issue / return / adjust (qty may be negative)."""
+    emp = q("SELECT name FROM employees WHERE id=?", (eid,), one=True) if eid else None
+    delta = {"in": qty, "issue": -qty, "return": qty, "adjust": qty}[kind]
+    db().execute("""INSERT INTO product_moves(product_id,kind,qty,employee_id,employee_name,on_date,note,created_by,created_at)
+                    VALUES(?,?,?,?,?,?,?,?,?)""",
+                 (pid, kind, qty, eid if emp else None, emp["name"] if emp else None,
+                  (parse_date(on) or date.today()).isoformat(), note or None, g.user["username"],
+                  datetime.now().strftime("%Y-%m-%d %H:%M")))
+    db().execute("UPDATE products SET stock=COALESCE(stock,0)+? WHERE id=?", (delta, pid))
+
+
+def product_cats():
+    used = [r["category"] for r in q("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category<>''")]
+    return sorted(set(PRODUCT_CATS) | set(used))
+
+
+@app.route("/products", methods=["GET", "POST"])
+@perm_required("assets.view", "assets.manage")
+def products():
+    if request.method == "POST":
+        if not can("assets.manage"):
+            abort(403)
+        name = request.form.get("name", "").strip()
+        code = request.form.get("code", "").strip().upper() or next_product_code()
+        if not name:
+            flash("Product name is required.", "error")
+        elif q("SELECT 1 FROM products WHERE code=?", (code,), one=True):
+            flash(f"Product code {code} is already used.", "error")
+        else:
+            pid = x("INSERT INTO products(code,name,category,unit,price,stock,min_stock,notes) VALUES(?,?,?,?,?,0,?,?)",
+                    (code, name, request.form.get("category", "").strip() or None, request.form.get("unit") or "pcs",
+                     to_float(request.form.get("price"), 0), to_float(request.form.get("min_stock"), 0),
+                     request.form.get("notes", "").strip() or None))
+            opening = to_float(request.form.get("stock"), 0)
+            if opening > 0:
+                product_move(pid, "in", opening, note="Opening stock")
+                db().commit()
+            flash(f"Product {code} – {name} added{f' with {opening:g} in stock' if opening else ''}.", "ok")
+        return redirect(url_for("products"))
+    term = request.args.get("q", "").strip()
+    cat = request.args.get("cat", "")
+    view = request.args.get("view", "all")
+    sql = """SELECT p.*, COALESCE((SELECT SUM(qty) FROM product_moves m WHERE m.product_id=p.id AND m.kind='issue'),0) issued
+             FROM products p WHERE p.active=1"""
+    args = []
+    if term:
+        sql += " AND (p.name LIKE ? OR p.code LIKE ? OR p.category LIKE ?)"
+        args += [f"%{term}%"] * 3
+    if cat:
+        sql += " AND p.category=?"
+        args.append(cat)
+    if view == "low":
+        sql += " AND p.min_stock>0 AND p.stock<=p.min_stock"
+    rows = q(sql + " ORDER BY p.category, p.name", args)
+    allp = q("SELECT stock, price, min_stock FROM products WHERE active=1")
+    month = date.today().strftime("%Y-%m")
+    kp = {"count": len(allp), "value": sum((r["stock"] or 0) * (r["price"] or 0) for r in allp),
+          "low": sum(1 for r in allp if (r["min_stock"] or 0) > 0 and (r["stock"] or 0) <= r["min_stock"]),
+          "issued": q("""SELECT COALESCE(SUM(m.qty * p.price),0) v FROM product_moves m JOIN products p ON p.id=m.product_id
+                         WHERE m.kind='issue' AND substr(m.on_date,1,7)=?""", (month,), one=True)["v"]}
+    cats = q("SELECT category, COUNT(*) c FROM products WHERE active=1 GROUP BY category ORDER BY category")
+    return render_template("products.html", rows=rows, kp=kp, term=term, cat=cat, view=view, cats=cats,
+                           all_cats=product_cats(), units=PRODUCT_UNITS, code=next_product_code())
+
+
+@app.route("/products/issue", methods=["GET", "POST"])
+@perm_required("assets.manage")
+def product_issue():
+    if request.method == "POST":
+        eid = request.form.get("employee_id", type=int)
+        e = q("SELECT id, name FROM employees WHERE id=? AND status='active'", (eid,), one=True)
+        if not e:
+            flash("Choose an existing active employee.", "error")
+            return redirect(url_for("product_issue"))
+        on = request.form.get("on_date")
+        note = request.form.get("note", "").strip()
+        done, problems = [], []
+        for pid_s, qty_s in zip(request.form.getlist("product_id"), request.form.getlist("qty")):
+            pr = q("SELECT * FROM products WHERE id=? AND active=1", (pid_s,), one=True) if pid_s.isdigit() else None
+            qty = to_float(qty_s, 0)
+            if not pr or qty <= 0:
+                continue
+            if qty > (pr["stock"] or 0):
+                problems.append(f"{pr['name']}: only {pr['stock']:g} {pr['unit']} in stock")
+                continue
+            product_move(pr["id"], "issue", qty, eid, on, note)
+            done.append(f"{qty:g} {pr['unit']} {pr['name']}")
+        db().commit()
+        if done:
+            flash(f"Issued to {e['name']}: " + ", ".join(done) + ".", "ok")
+        for p_ in problems:
+            flash("Not issued – " + p_, "error")
+        if not done and not problems:
+            flash("Choose at least one product and a quantity.", "error")
+        return redirect(url_for("product_issue", emp=eid) if request.form.get("again") else
+                        (url_for("employee_view", eid=eid) + "#products" if request.form.get("back") == "profile"
+                         else url_for("product_moves_page")))
+    prods = q("SELECT * FROM products WHERE active=1 ORDER BY name")
+    emps = q("SELECT id, name, emp_code FROM employees WHERE status='active' ORDER BY name")
+    return render_template("product_issue.html", prods=prods, emps=emps, pre=request.args.get("emp", type=int),
+                           pre_p=request.args.get("product", type=int))
+
+
+@app.route("/products/history")
+@perm_required("assets.view", "assets.manage")
+def product_moves_page():
+    kind = request.args.get("kind", "")
+    emp = request.args.get("emp", type=int)
+    sql = """SELECT m.*, p.name pname, p.code, p.unit, p.price FROM product_moves m JOIN products p ON p.id=m.product_id WHERE 1=1"""
+    args = []
+    if kind in ("in", "issue", "return", "adjust"):
+        sql += " AND m.kind=?"
+        args.append(kind)
+    if emp:
+        sql += " AND m.employee_id=?"
+        args.append(emp)
+    rows = q(sql + " ORDER BY m.on_date DESC, m.id DESC LIMIT 1000", args)
+    if request.args.get("export") == "csv":
+        return csv_response("product-history.csv", ["Date", "Type", "Code", "Product", "Qty", "Unit", "Employee", "Note", "By"],
+                            [[r["on_date"], r["kind"], r["code"], r["pname"], r["qty"], r["unit"], r["employee_name"] or "",
+                              r["note"] or "", r["created_by"]] for r in rows])
+    by_emp = q("""SELECT m.employee_id, m.employee_name, COUNT(*) n, SUM(m.qty * p.price) v FROM product_moves m
+                  JOIN products p ON p.id=m.product_id WHERE m.kind='issue' AND m.employee_id IS NOT NULL
+                  GROUP BY m.employee_id ORDER BY v DESC LIMIT 8""")
+    emps = q("SELECT id, name FROM employees ORDER BY name")
+    return render_template("product_moves.html", rows=rows, kind=kind, emp=emp, emps=emps, by_emp=by_emp)
+
+
+@app.route("/products/<int:pid>", methods=["GET", "POST"])
+@perm_required("assets.view", "assets.manage")
+def product_view(pid):
+    pr = q("SELECT * FROM products WHERE id=?", (pid,), one=True) or abort(404)
+    if request.method == "POST":
+        if not can("assets.manage"):
+            abort(403)
+        act = request.form.get("act")
+        if act == "in":
+            qty = to_float(request.form.get("qty"), 0)
+            if qty > 0:
+                product_move(pid, "in", qty, on=request.form.get("on_date"), note=request.form.get("note", "").strip())
+                db().commit()
+                flash(f"Added {qty:g} {pr['unit']} to stock.", "ok")
+        elif act == "adjust":
+            new = to_float(request.form.get("count"), -1)
+            if new >= 0:
+                product_move(pid, "adjust", new - (pr["stock"] or 0), note=request.form.get("note", "").strip() or "Stock count")
+                db().commit()
+                flash(f"Stock corrected to {new:g} {pr['unit']}.", "ok")
+        elif act == "return":
+            qty = to_float(request.form.get("qty"), 0)
+            eid = request.form.get("employee_id", type=int)
+            if qty > 0 and eid:
+                product_move(pid, "return", qty, eid, note=request.form.get("note", "").strip() or "Returned unused")
+                db().commit()
+                flash(f"{qty:g} {pr['unit']} returned to stock.", "ok")
+        elif act == "edit":
+            x("UPDATE products SET name=?, category=?, unit=?, price=?, min_stock=?, notes=? WHERE id=?",
+              (request.form.get("name", "").strip() or pr["name"], request.form.get("category", "").strip() or None,
+               request.form.get("unit") or pr["unit"], to_float(request.form.get("price"), pr["price"] or 0),
+               to_float(request.form.get("min_stock"), pr["min_stock"] or 0), request.form.get("notes", "").strip() or None, pid))
+            flash("Product updated.", "ok")
+        elif act == "delete":
+            to_bin("product", pid)
+            x("DELETE FROM products WHERE id=?", (pid,))
+            flash(f"{pr['name']} moved to the Recycle Bin.", "ok")
+            return redirect(url_for("products"))
+        return redirect(url_for("product_view", pid=pid))
+    moves = q("SELECT * FROM product_moves WHERE product_id=? ORDER BY on_date DESC, id DESC LIMIT 300", (pid,))
+    holders = q("""SELECT employee_id, employee_name, SUM(CASE WHEN kind='issue' THEN qty WHEN kind='return' THEN -qty ELSE 0 END) q
+                   FROM product_moves WHERE product_id=? AND employee_id IS NOT NULL GROUP BY employee_id HAVING q>0
+                   ORDER BY q DESC""", (pid,))
+    return render_template("product_view.html", p=pr, moves=moves, holders=holders, cats=product_cats(), units=PRODUCT_UNITS)
 
 
 init_db()
