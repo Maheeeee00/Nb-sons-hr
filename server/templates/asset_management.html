@@ -27,7 +27,7 @@
 {% for row in emps %}{% set e = row.e %}
   <div class="card am-emp {{ 'has' if row.assets }}" id="emp-{{ e.id }}" style="--i: {{ loop.index0 if loop.index0 < 20 else 20 }}">
     <div class="am-head">
-      <span class="rp-avatar">{{ (e.name.split()|map('first')|join)[:2]|upper }}</span>
+      <span class="rp-avatar">{% set purl = photo_url(e) %}{% if purl %}<img src="{{ purl }}" alt="">{% else %}{{ (e.name.split()|map('first')|join)[:2]|upper }}{% endif %}</span>
       <div class="grow"><b><a href="{{ url_for('employee_view', eid=e.id) }}">{{ e.name }}</a></b>
         <small>{{ e.emp_code }}{% if e.designation %} · {{ e.designation }}{% endif %}{% if e.dept %} · {{ e.dept }}{% endif %}</small></div>
       <div class="am-count"><b>{{ row.assets|length }}</b><small>asset{{ '' if row.assets|length == 1 else 's' }}{% if row.value %} · {{ row.value|money }}{% endif %}</small></div>

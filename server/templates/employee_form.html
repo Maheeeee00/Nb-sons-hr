@@ -6,9 +6,20 @@
 {% block actions %}<a class="btn" href="{{ url_for('employees') if new else url_for('employee_view', eid=eid) }}">Cancel</a>{% endblock %}
 {% block content %}
 {{ emp_tabs('add' if new else 'edit') }}
-<form method="post" class="card">
+<form method="post" class="card" enctype="multipart/form-data">
   {{ csrf() }}
   <fieldset><legend>Personal details</legend>
+    {% set purl = photo_url(e) if not new else none %}
+    <div class="ef-photo">
+      <label class="ef-pic" title="Click to choose a picture">
+        <img id="ef-prev" src="{{ purl or '' }}" alt="" {{ 'hidden' if not purl }}>
+        <span id="ef-ph" {{ 'hidden' if purl }}>📷</span>
+        <input type="file" name="photo" accept=".jpg,.jpeg,.png,.webp,.gif" hidden
+               onchange="var f=this.files[0];if(f){var r=new FileReader();r.onload=function(ev){var i=document.getElementById('ef-prev');i.src=ev.target.result;i.hidden=false;document.getElementById('ef-ph').hidden=true};r.readAsDataURL(f)}">
+      </label>
+      <div><b>Profile picture</b><small class="muted">Click the circle to {{ 'change' if purl else 'add' }} a photo (JPG / PNG, optional).</small>
+        {% if purl %}<label class="ef-rm"><input type="checkbox" name="remove_photo" value="1"> Remove current picture</label>{% endif %}</div>
+    </div>
     <div class="form-grid">
       <div><label>Employee code</label><input name="emp_code" value="{{ code }}"></div>
       <div><label>Full name *</label><input name="name" value="{{ e.name or '' }}" required></div>

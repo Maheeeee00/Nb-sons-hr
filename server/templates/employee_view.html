@@ -9,7 +9,18 @@
 <section class="phero" style="--pc:linear-gradient(135deg,{{ colors[e.id % 8] }})">
   <div class="ph-band"></div>
   <div class="ph-body">
-    <span class="ph-av">{{ (e.name.split()|map('first')|join)[:2]|upper }}</span>
+    {% set purl = photo_url(e) %}
+    {% if can('employees.manage') %}
+    <form method="post" action="{{ url_for('employee_photo', eid=e.id) }}" enctype="multipart/form-data" class="ph-avf">{{ csrf() }}
+      <label class="ph-av {{ 'has-img' if purl }}" title="Click to {{ 'change' if purl else 'add' }} profile picture">
+        {% if purl %}<img src="{{ purl }}" alt="{{ e.name }}">{% else %}{{ (e.name.split()|map('first')|join)[:2]|upper }}{% endif %}
+        <span class="ph-cam">📷</span>
+        <input type="file" name="photo" accept=".jpg,.jpeg,.png,.webp,.gif" hidden onchange="if(this.files.length)this.form.submit()"></label>
+      {% if purl %}<button class="ph-rm" name="remove" value="1" title="Remove picture" onclick="return confirm('Remove the profile picture?')">✕</button>{% endif %}
+    </form>
+    {% else %}
+    <span class="ph-av {{ 'has-img' if purl }}">{% if purl %}<img src="{{ purl }}" alt="{{ e.name }}">{% else %}{{ (e.name.split()|map('first')|join)[:2]|upper }}{% endif %}</span>
+    {% endif %}
     <div class="ph-id">
       <h1>{{ e.name }} {{ badge(e.status) }}</h1>
       <div class="ph-sub">{{ e.designation or 'No designation' }} · {{ e.dept or 'No department' }}{% if is_head %} · 👑 Head of {{ is_head|map(attribute='name')|join(', ') }}{% endif %}</div>

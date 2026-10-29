@@ -44,7 +44,7 @@
 {% set total = (c.present + c.late + c.half_day + c.absent + c.leave) or 1 %}
 <div class="card rp-detail">
   <div class="rp-dhead">
-    <div class="rp-avatar big">{{ e.name.split()[:2]|map('first')|join|upper }}</div>
+    <div class="rp-avatar big">{% set purl = photo_url(e) %}{% if purl %}<img src="{{ purl }}" alt="">{% else %}{{ e.name.split()[:2]|map('first')|join|upper }}{% endif %}</div>
     <div class="rp-dname"><h2>{{ e.name }}</h2>
       <small>{{ e.emp_code }}{% if e.designation %} · {{ e.designation }}{% endif %}{% if e.dept %} · {{ e.dept }}{% endif %} · {{ month|monthname }}</small></div>
     <a class="btn sm" href="{{ url_for('attendance_report', month=month, dept=dept, q=search) }}">✕ Close</a>
@@ -105,7 +105,7 @@
     {% for r in rows %}{% set row = loop.index0 %}
       <tr class="{{ 'sel' if detail and detail.e.id == r.e.id }}" style="--r: {{ row }}">
         <td class="mr-name"><a class="rp-who" href="{{ url_for('attendance_report', month=month, dept=dept, q=search, emp=r.e.id) }}">
-          <span class="rp-avatar">{{ r.initials }}</span>
+          <span class="rp-avatar">{% set purl = photo_url(r.e) %}{% if purl %}<img src="{{ purl }}" alt="">{% else %}{{ r.initials }}{% endif %}</span>
           <span class="rp-whotxt"><b>{{ r.e.name }}</b><small>{{ r.e.emp_code }} · {{ r.pct }}%</small>
             <span class="rp-bar {{ 'low' if r.pct < 75 else ('mid' if r.pct < 90 else '') }}"><i style="--w: {{ r.pct }}%"></i></span></span></a></td>
         {% for s in r.cells %}{% set d = dates[loop.index0] %}{% set t = r.tips[loop.index0] %}

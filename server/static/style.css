@@ -1074,3 +1074,22 @@ td .btns{flex-wrap:nowrap}td .btn.sm{padding:5px 10px}
 .nav-sub-label{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;opacity:.6;padding:10px 12px 4px 18px;color:inherit}
 .pr-exp{font-size:11.5px;color:#475569;background:#f1f5f9;border-radius:8px;padding:3px 8px;align-self:flex-start}
 .pr-exp.warn{background:#fef3c7;color:#92400e;font-weight:700}.pr-exp.bad{background:#fee2e2;color:#b91c1c;font-weight:700}
+/* profile pictures */
+.ef-photo{display:flex;align-items:center;gap:16px;margin:4px 0 16px}
+.ef-photo small{display:block}.ef-rm{display:flex;align-items:center;gap:6px;font-weight:400;margin-top:6px;font-size:13px}
+.ef-pic{width:92px;height:92px;border-radius:50%;border:2.5px dashed #94a3b8;display:grid;place-items:center;cursor:pointer;overflow:hidden;background:#f8fafc;flex:none;margin:0;transition:border-color .2s,transform .2s}
+.ef-pic:hover{border-color:#14b8a6;transform:scale(1.04)}
+.ef-pic img{width:100%;height:100%;object-fit:cover}.ef-pic span{font-size:30px}
+.ph-avf{position:relative;margin:0;z-index:2}
+.ph-av{overflow:hidden}
+.ph-av img,.pc-av img,.rp-avatar img,.el-av img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}
+label.ph-av{cursor:pointer;margin:0}
+.ph-cam{position:absolute;right:6px;bottom:6px;width:30px;height:30px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:15px;box-shadow:0 2px 8px rgba(0,0,0,.25);opacity:0;transform:scale(.6);transition:all .2s}
+.ph-avf:hover .ph-cam{opacity:1;transform:none}
+.ph-avf .ph-av{position:relative}
+.ph-rm{position:absolute;top:-6px;right:-6px;z-index:3;width:24px;height:24px;border-radius:50%;border:0;background:#ef4444;color:#fff;cursor:pointer;font-size:12px;opacity:0;transition:opacity .2s}
+.ph-avf:hover .ph-rm{opacity:1}
+.pc-av{overflow:hidden}
+.rp-avatar{overflow:hidden}
+.el-who{display:flex;align-items:center;gap:10px}
+.el-av{flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;color:#fff;background:linear-gradient(135deg,#14b8a6,#0e7c86);overflow:hidden}

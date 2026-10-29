@@ -20,7 +20,7 @@
   {% set colors = ['#14b8a6,#0e7c86','#3b82f6,#1d4ed8','#f59e0b,#c2410c','#8b5cf6,#5b21b6','#ec4899,#be123c','#22c55e,#15803d','#0ea5e9,#0369a1','#ef4444,#991b1b'] %}
   <a class="pcard" href="{{ url_for('employee_view', eid=e.id) }}">
     <div class="pc-band" style="background:linear-gradient(135deg,{{ colors[e.id % 8] }})"></div>
-    <span class="pc-av" style="background:linear-gradient(135deg,{{ colors[e.id % 8] }})">{{ (e.name.split()|map('first')|join)[:2]|upper }}</span>
+    <span class="pc-av" style="background:linear-gradient(135deg,{{ colors[e.id % 8] }})">{% set purl = photo_url(e) %}{% if purl %}<img src="{{ purl }}" alt="">{% else %}{{ (e.name.split()|map('first')|join)[:2]|upper }}{% endif %}</span>
     {% if e.today_st %}<span class="pc-today b-{{ e.today_st }}" title="Today">{{ e.today_st|replace('_',' ')|title }}</span>{% endif %}
     <b class="pc-name">{{ e.name }}</b>
     <small class="pc-role">{{ e.designation or 'No designation' }}</small>

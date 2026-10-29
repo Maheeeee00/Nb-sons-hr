@@ -20,7 +20,7 @@ from flask import (Flask, g, render_template, request, redirect, url_for, sessio
                    flash, abort, send_file, Response)
 from werkzeug.security import generate_password_hash, check_password_hash
 
-APP_VERSION = "2.4.1"
+APP_VERSION = "2.5.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Where the data lives. Desktop app sets HR_DATA (e.g. Documents\NB Sons HR Data); otherwise next to app.py.
 DATA_DIR = os.environ.get("HR_DATA") or BASE_DIR
@@ -164,7 +164,7 @@ CREATE INDEX IF NOT EXISTS idx_pay_month ON payroll(month);
 
 DEFAULT_SETTINGS = {
     "zkt_on": "0", "zkt_path": "", "zkt_from": "", "zkt_last": "", "zkt_err": "", "zkt_mtime": "",
-    "company_name": "My Company",
+    "company_name": "NB Sons Private Limited",
     "company_address": "",
     "currency": "PKR",
     "office_start": "09:00",
@@ -235,6 +235,8 @@ def init_db():
     if "suggested_deduction" not in pcols:          # deductions are suggested, HR applies them by hand
         con.execute("ALTER TABLE payroll ADD COLUMN suggested_deduction REAL DEFAULT 0")
         con.execute("ALTER TABLE payroll ADD COLUMN ded_status TEXT")
+    if "photo" not in cols:
+        con.execute("ALTER TABLE employees ADD COLUMN photo TEXT")
     if "manager_id" not in cols:
         con.execute("ALTER TABLE employees ADD COLUMN manager_id INTEGER")
     usql = con.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").fetchone()[0]
@@ -264,6 +266,8 @@ def init_db():
         con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('encash_rule_26','1')")
     for k, v in DEFAULT_SETTINGS.items():
         con.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (k, v))
+    con.execute("""UPDATE settings SET value='NB Sons Private Limited' WHERE key='company_name'
+                   AND (value IS NULL OR TRIM(value) IN ('', 'My Company'))""")
     ltcols = {r[1] for r in con.execute("PRAGMA table_info(leave_types)")}
     if "encash" not in ltcols:                     # leave encashment: Annual 12 + Sick 8 are paid out if unused
         con.execute("ALTER TABLE leave_types ADD COLUMN encash INTEGER DEFAULT 0")
@@ -676,7 +680,7 @@ def audit(action, detail="", user=None):
 
 AUDIT_NAMES = {
     "employee_new": "Added employee", "employee_edit": "Edited employee", "employee_bulk_edit": "Bulk-edited employees",
-    "employee_delete": "Deleted employee", "employee_account": "Changed employee login",
+    "employee_delete": "Deleted employee", "employee_account": "Changed employee login", "employee_photo": "Changed profile picture",
     "employee_import_confirm": "Imported employees", "department_new": "Saved department",
     "departments_manage": "Changed departments", "department_delete": "Deleted department",
     "attendance": "Marked attendance", "attendance_mark": "Quick-marked attendance", "attendance_manage": "Edited attendance",
@@ -1118,6 +1122,77 @@ def emp_form(**kw):
     return render_template("employee_form.html", **kw)
 
 
+PHOTO_DIR = os.path.join(DATA_DIR, "photos")
+PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+
+def save_photo(eid, fs):
+    """Save an uploaded profile picture. Returns an error text or None."""
+    if not fs or not fs.filename:
+        return None
+    ext = os.path.splitext(fs.filename)[1].lower()
+    if ext not in PHOTO_EXT:
+        return "Profile picture must be a JPG, PNG or WEBP image."
+    data = fs.read()
+    if len(data) > 8 * 1024 * 1024:
+        return "Profile picture is too big (max 8 MB)."
+    if not data:
+        return None
+    os.makedirs(PHOTO_DIR, exist_ok=True)
+    name = f"{eid}_{secrets.token_hex(4)}{ext}"
+    with open(os.path.join(PHOTO_DIR, name), "wb") as f:
+        f.write(data)
+    remove_photo(eid, keep=name)
+    x("UPDATE employees SET photo=? WHERE id=?", (name, eid))
+    return None
+
+
+def remove_photo(eid, keep=None):
+    old = q("SELECT photo FROM employees WHERE id=?", (eid,), one=True)
+    if old and old["photo"] and old["photo"] != keep:
+        try:
+            os.remove(os.path.join(PHOTO_DIR, old["photo"]))
+        except OSError:
+            pass
+    if not keep:
+        x("UPDATE employees SET photo=NULL WHERE id=?", (eid,))
+
+
+def emp_photo_url(e):
+    try:
+        ph = e["photo"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    return url_for("employee_photo", eid=e["id"], v=ph.split("_")[-1].split(".")[0]) if ph else None
+
+
+app.jinja_env.globals["photo_url"] = emp_photo_url
+
+
+@app.route("/employees/<int:eid>/photo", methods=["GET", "POST"])
+@login_required
+def employee_photo(eid):
+    if request.method == "POST":
+        if not can("employees.manage"):
+            abort(403)
+        if request.form.get("remove"):
+            remove_photo(eid)
+            flash("Profile picture removed.", "ok")
+        else:
+            err = save_photo(eid, request.files.get("photo"))
+            flash(err or "Profile picture updated.", "error" if err else "ok")
+        return redirect(url_for("employee_view", eid=eid))
+    if not (can("employees.view", "attendance.view", "assets.view", "payroll.view") or g.user["employee_id"] == eid):
+        abort(403)
+    r = q("SELECT photo FROM employees WHERE id=?", (eid,), one=True)
+    path = os.path.join(PHOTO_DIR, r["photo"]) if r and r["photo"] else None
+    if not path or not os.path.isfile(path):
+        abort(404)
+    resp = send_file(path, max_age=86400)
+    resp.headers["Cache-Control"] = "private, max-age=86400"
+    return resp
+
+
 @app.route("/employees")
 @perm_required("employees.view")
 def employees():
@@ -1187,6 +1262,9 @@ def employee_new():
             if request.form.get("create_login"):
                 x("INSERT INTO users(username,password_hash,role,employee_id,must_change) VALUES(?,?,?,?,1)",
                   (uname, generate_password_hash(pw), "employee", eid))
+            perr = save_photo(eid, request.files.get("photo"))
+            if perr:
+                flash(perr, "error")
             flash(f"Employee {d['name']} ({code}) added.", "ok")
             return redirect(url_for("employee_view", eid=eid))
         return emp_form(e=d, code=code, new=True)
@@ -1223,6 +1301,11 @@ def employee_edit(eid):
             x(f"UPDATE employees SET emp_code=?, {', '.join(f + '=?' for f in EMP_FIELDS)} WHERE id=?",
               [code] + [d[f] for f in EMP_FIELDS] + [eid])
             log_salary_change(eid, e, d.get("basic_salary"), d.get("allowances"), d.get("designation"), "Changed in Edit profile")
+            if request.form.get("remove_photo"):
+                remove_photo(eid)
+            perr = save_photo(eid, request.files.get("photo"))
+            if perr:
+                flash(perr, "error")
             if d["status"] == "inactive":
                 x("UPDATE users SET active=0 WHERE employee_id=?", (eid,))
             flash("Employee updated.", "ok")
@@ -2007,7 +2090,7 @@ def attendance_report():
     dept = request.args.get("dept", "")
     search = request.args.get("q", "").strip()
     emp_id = request.args.get("emp", type=int)
-    sql = """SELECT e.id, e.emp_code, e.name, e.designation, d.name dept FROM employees e LEFT JOIN departments d
+    sql = """SELECT e.id, e.emp_code, e.name, e.designation, e.photo, d.name dept FROM employees e LEFT JOIN departments d
              ON d.id=e.department_id WHERE e.status='active'"""
     args = []
     if dept:
@@ -2049,7 +2132,7 @@ def attendance_report():
         return csv_response(f"attendance-{month}.csv", head, body)
     detail = None
     if emp_id:
-        e = q("""SELECT e.id, e.emp_code, e.name, e.designation, d.name dept FROM employees e
+        e = q("""SELECT e.id, e.emp_code, e.name, e.designation, e.photo, d.name dept FROM employees e
                  LEFT JOIN departments d ON d.id=e.department_id WHERE e.id=?""", (emp_id,), one=True)
         if e:
             recs = {r["date"]: r for r in q("SELECT * FROM attendance WHERE employee_id=? AND substr(date,1,7)=?",
@@ -5136,7 +5219,7 @@ def asset_management():
     by_emp = {}
     for a in held:
         by_emp.setdefault(a["employee_id"], []).append(dict(a, grp=_asset_group(a["category"])))
-    sql = """SELECT e.id, e.name, e.emp_code, e.designation, d.name dept FROM employees e LEFT JOIN departments d
+    sql = """SELECT e.id, e.name, e.emp_code, e.designation, e.photo, d.name dept FROM employees e LEFT JOIN departments d
              ON d.id=e.department_id WHERE e.status='active'"""
     args = []
     if term:

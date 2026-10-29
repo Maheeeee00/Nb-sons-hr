@@ -27,7 +27,7 @@
     {% for e in rows %}
       <tr>
         <td>{{ e.emp_code }}</td>
-        <td><a href="{{ url_for('employee_view', eid=e.id) }}"><b>{{ e.name }}</b></a></td>
+        <td><a class="el-who" href="{{ url_for('employee_view', eid=e.id) }}">{% set purl = photo_url(e) %}<span class="el-av">{% if purl %}<img src="{{ purl }}" alt="">{% else %}{{ (e.name.split()|map('first')|join)[:2]|upper }}{% endif %}</span><b>{{ e.name }}</b></a></td>
         <td>{{ e.dept or '—' }}</td><td>{{ e.designation or '—' }}{% if e.team_size %}<br><small class="muted">👥 {{ e.team_size }} report(s)</small>{% endif %}</td>
         <td>{% if e.manager_id %}<a href="{{ url_for('employee_view', eid=e.manager_id) }}">{{ e.mgr_name }}</a>{% else %}—{% endif %}</td><td>{{ e.phone or '—' }}</td>
         <td>{{ e.join_date|nicedate or '—' }}</td>
